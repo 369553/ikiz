@@ -14,7 +14,7 @@ public class testSinifi{
     }
     public testSinifi(String name){
         numara = 5;
-        this.name = "boş";
+        this.name = name;
         age = 45;
         korunmusSir = true;
     }

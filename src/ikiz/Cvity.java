@@ -1,6 +1,7 @@
 package ikiz;
 //Sistem şu anda sadece MySQL ile çalışacak bi iznillâh..
 
+import ikiz.Services.ArrayPrinterService;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -54,7 +55,8 @@ public class Cvity{
             return false;
         if(dbName.isEmpty())
             return false;
-        String order = "CREATE DATABASE " + dbName + ";";
+        String order = "CREATE DATABASE IF NOT EXISTS " + dbName + ";";
+        
         try{
             Statement query = connection.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             query.execute(order);
@@ -77,7 +79,7 @@ public class Cvity{
             ResultSet rs = testStatement.getResultSet();
             String[] tableNames;
             for(int sayac = 0; rs.next() == true; sayac++){
-                liTableNames.add(rs.getString("Tables_in_" + connection.getCatalog()));
+                liTableNames.add(rs.getString(1));
             }
             if(liTableNames.size() == 0)
                 return new String[]{""};

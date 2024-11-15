@@ -8,6 +8,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.List;
 
 public class IkizApp{
     private static IkizIdare i;
@@ -16,26 +17,44 @@ public class IkizApp{
 //        dtfunction();
 //        return;
         //mainFunction();
+        testSystemWithtestSinifiClass();
+    }
+
+//İŞLEM YÖNTEMLERİ:
+    static void testSystemWithtestSinifiClass(){
+        // Yeni veritabanı oluştur:
+        /*
         Connection connection = Cvity.connectBase("root", "LINQSE.1177", "localhost", 3306);
         
-        boolean isSuccessful = Cvity.createDB(connection, "ikizTest");
+        boolean isSuccessful = Cvity.createDB(connection, "ikizTest2");
         if(!isSuccessful){
             System.err.println("Veritabanı oluşturulamadı!");
             return;
         }
+        */
         Connection conToDB = Cvity.connectDB("root", "LINQSE.1177", "localhost", "ikizTest", 3306);
         Cvity cVity = new Cvity(conToDB, "root", "LINQSE.1177", "ikizTest");
+        //Cvity.getTableNamesOnDB(cVity.getConnext());
         if(!IkizIdare.startIkizIdare(cVity)){
             System.err.println("Sistem başlatılamadı!");
             return;
         }
         i = IkizIdare.getIkizIdare();
-        IkizIdare.getIkizIdare().produceTable(new testSinifi());
-        IkizIdare.getIkizIdare().addRowToDB(new testSinifi());
-        i.test("testSinifi");
+        //IkizIdare.getIkizIdare().produceTable(new testSinifi());
+        //IkizIdare.getIkizIdare().addRowToDB(new testSinifi());
+        //testSinifi entity = new testSinifi("Bu yeni bir eleman");
+        //entity.setAge(17);
+        //i.addRowToDB(entity);
+        
+        //i.test("testSinifi");
+        
+        //i.setNullToCol();
+        List<testSinifi> data = i.getData(testSinifi.class);
+        if(data != null){
+            System.out.println("data.size : " + data.size());
+            data.forEach((element) -> {System.out.println("element.name : " + element.name);});
+        }
     }
-
-//İŞLEM YÖNTEMLERİ:
     static void test(){
         System.out.println("");
     }

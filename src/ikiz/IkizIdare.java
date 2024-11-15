@@ -12,6 +12,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 
 public class IkizIdare{
@@ -19,13 +20,13 @@ public class IkizIdare{
     private static IkizIdare ikiz;
     private HashMap<String, Boolean> attributesPolicy;
     private boolean takeDateAttributeAsDateTime = true;
-    protected boolean alwaysContinue = true;//Eğer kullanıcın alınmasını istediği değer alınamadıysa, kalan değerlerle veritabanına yazmaya çalış
+    protected boolean alwaysContinue = true;//Eğer kullanıcın alınmasını istediği alanın değer alınamadıysa, kalan değerlerle veritabanına yazmaya çalış
     protected boolean workWithNonParameterConstructor = true;//
     private boolean workWithSpecialBuilder = false;//Yalnızca ikizIdare sınıfından bir nesnenin 'specialCode' kullanarak erişebileceği bir inşâcı ile çalış
     private String specialCode;//Özel inşâcı ile çalışıldığı durumda özel inşâcının ikizIdare için ilgili sınıftan bir değişken üretmesi için gereken kod
     private ArrayList<String> workingTables;
     private boolean bufferMode = false;//Her veri çekme isteğinde veritabanından veri çekilmemesi için verilerin İkiz'de saklandığı bir çalışma şekli
-    private HashMap<String, Object[]> bufferTables;
+    private HashMap<String, List> bufferTables;
     private HashMap<String, Date> lastUpdateTimeOfTables;//Tabloların en son güncellendiği zamânı belirtiyor.
     private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.
     private ErrorTable errorTable;//Hatâların yazılması ve gösterilmesiyle ilgili bir sistem
@@ -81,7 +82,7 @@ public class IkizIdare{
             if(result == false)
                 return false;
             st.clearBatch();
-            boolean confirming = st.execute("SELECT * FROM " + tableName);
+            boolean confirming = st.execute("SELECT * FROM " + tableName);// Buraya limit koyulmalı; boşuna tüm vriler çekilmemeli
             ResultSet rs = st.getResultSet();
 //            return null != rs.getObject(columnNames[0], columnTypes[0]);
             if(rs.getObject(columnNames[0], columnTypes[0]) != null){
@@ -203,6 +204,15 @@ public class IkizIdare{
         query.append(");");
         return true;
     }
+    public void setNullToCol(){//GEÇİCİ FONKSİYON, SONRA SİL
+        String sql = "UPDATE testSinifi SET name = null WHERE name=\"boş\"";
+        try {
+            boolean isSuccess = getConnectivity().getConnext().createStatement().execute(sql);
+            System.out.println("Başarılı işlem");
+        } catch (SQLException ex) {
+            System.err.println("Başarısız işlem!");
+        }
+    }
     public void setAttributesPolicy(boolean takePublicFields, boolean takePrivateFields, boolean takeDefaultFields, boolean takeProtectedFields){
         if(takePrivateFields || takeDefaultFields || takeProtectedFields){
             //Kullanıcıya bu sınıfların getter ve setter yöntemleri içermesi gerektiğini hâtırlat
@@ -219,12 +229,12 @@ public class IkizIdare{
     public void setAlwaysContinueAttribute(boolean value){
         this.alwaysContinue = value;
     }
-    public Object[] getData(Class target){//Tablodaki verilerin büyük olması durumunda verilerin tamâmını almak için bunları bigint gibi sayılarda tutmalıyız
+    public <T> List<T> getData(Class<T> target){//Tablodaki verilerin büyük olması durumunda verilerin tamâmını almak için bunları bigint gibi sayılarda tutmalıyız
         String tableName = target.getSimpleName();
         if(target == null)
             return null;
         if(bufferMode){
-            Object[] data = getDataFromBuffer(tableName);
+            List data = getDataFromBuffer(tableName);
             if(data != null)
                 return data;
         }
@@ -253,7 +263,7 @@ public class IkizIdare{
             return null;
         try{
             while(result.next()){
-                String name = result.getString("Tables_in_" + connectivity.getSchemaName());
+                String name = result.getString(1);
 //                System.out.println("tablo ismi : " + name);
                 if(name != null)
                     if(name.equalsIgnoreCase(tableName)){
@@ -269,20 +279,17 @@ public class IkizIdare{
         if(!go)
             return null;
 //        System.out.println("Aşama 2...");
-        Object[] data;
-        ArrayList<Object> liData;
+        ArrayList<T> liData;
         result = null;
         ArrayList<HashMap<String, Object>> liDataBeforeInstance = null;
         try{
             st = this.getConnectivity().getConnext().createStatement(
                 ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE);
             result = st.executeQuery("SELECT * FROM " + tableName);
+            liData = new ArrayList<T>();
             if(result == null){//Tabloda hiç satır yoksa
-                data = new Object[1];
-                data[0] = null;
-                return data;
+                return liData;
             }
-            liData = new ArrayList<Object>();
             int columnCount = result.getMetaData().getColumnCount();
             liDataBeforeInstance = new ArrayList<>();
             while(result.next()){
@@ -339,13 +346,11 @@ public class IkizIdare{
                     System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
                     return null;
                 }
-                liData.add(assignAttributes(instance, target, mapOfAttributes, mapFields));
+                liData.add((T) assignAttributes(instance, target, mapOfAttributes, mapFields));
             }
-            data = new Object[liData.size()];
-            liData.toArray(data);
 //            System.out.println("Üretilen değişkenin sınıf ismi : " + data[0].getClass().getName());
 //            System.out.println("Veri tipi dönüşümü yapılmış değişkenin sınıf ismi : " + target.cast(data[0]).getClass().getName());
-            return data;
+            return liData;
         }
         //Eğer parametresiz yapıcı fonksiyon yoksa:
         //.;.
@@ -354,6 +359,7 @@ public class IkizIdare{
                 return null;
         }
         //.;.
+        // Uygun yapıcı yöntemi seç, nesneleri oluştur ve ata
         //GEÇİCİ:
         return null;
     }
@@ -365,7 +371,7 @@ public class IkizIdare{
                 ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE);
             result = st.executeQuery("SHOW TABLES");
             while(result.next()){
-                String name = result.getString("Tables_in_" + this.getConnectivity().getSchemaName());
+                String name = result.getString(1);
                 System.out.println("tablo ismi : " + name);
             }
         }
@@ -424,7 +430,7 @@ public class IkizIdare{
     private static boolean testConnection(Cvity connectivity){
         if(connectivity == null)
             return false;
-           if(Cvity.getTableNamesOnDB(connectivity.getConnext()) == null)
+           if(Cvity.getTableNamesOnDB(connectivity.getConnext()) == null)// Eğer veritabanında hiç tablo yoksa sistemi başlatma
                return false;
         return true;
     }
@@ -519,15 +525,16 @@ public class IkizIdare{
         System.out.println(callFrom + " yöntemi çalıştırılırken oluştu;\n" + tableName + "isimli nesneye erişim sağlanamadı;\n");
     }
     private Object assignAttributes(Object instance, Class cl, HashMap<String, Object> mapAttributes, HashMap<String, Field> mapFields){//Hatâlardan sonra nasıl idâre edildiğiyle ilgili bir şey yok
-        for(String s : mapAttributes.keySet()){
-            Field f = mapFields.get(s);
+        for(String colName : mapAttributes.keySet()){
+            Field f = mapFields.get(colName);
             if(f == null)//Ola ki ilgili özellik sınıfta yoksa, atama yapmaya çalışma
                 continue;
             if(f.getModifiers() != 1){
                 try{
                     Method setter = cl.getDeclaredMethod("set" + convertFirstLetterToUpper(f.getName()), new Class[]{f.getType()});
                     try{
-                        setter.invoke(instance, mapAttributes.get(s));
+                        if(mapAttributes.get(colName) != null)
+                            setter.invoke(instance, mapAttributes.get(colName));
                     }
                     catch(IllegalAccessException ex){
                         System.err.println("hatâ : " + ex.getMessage());
@@ -548,7 +555,7 @@ public class IkizIdare{
             }
             else{
                 try{
-                    f.set(instance, mapAttributes.get(s));
+                    f.set(instance, mapAttributes.get(colName));
                 }
                 catch(IllegalArgumentException ex){
                     System.err.println("hatâ : " + ex.getMessage());
@@ -560,7 +567,7 @@ public class IkizIdare{
         }
         return instance;
     }
-    private Object[] getDataFromBuffer(String tableName){
+    private List getDataFromBuffer(String tableName){
         if(!bufferMode){
             System.err.println("veri saklama modu pasif durumda");
             //Hatâ - uyarı fırlat
@@ -574,7 +581,7 @@ public class IkizIdare{
         //.;.
         return bufferTables.get(tableName);
     }
-    private void refreshDataOnLocalArea(Object[] data){//Veri saklama modu (bufferMode) etkin ise verileri verilerin saklandığı yerel alandaki ilgili yeri güncelle
+    private void refreshDataOnLocalArea(List data){//Veri saklama modu (bufferMode) etkin ise verileri verilerin saklandığı yerel alandaki ilgili yeri güncelle
         if(!bufferMode)
             return;
         String tableName = data.getClass().getName();
@@ -636,9 +643,9 @@ public class IkizIdare{
         return updateModeOfTables;
     }
     //GİZLİ ERİŞİM YÖNTEMLERİ:
-    private HashMap<String, Object[]> getBufferTables(){
+    private HashMap<String, List> getBufferTables(){
         if(bufferTables == null)
-            bufferTables = new HashMap<String, Object[]>();
+            bufferTables = new HashMap<String, List>();
         return bufferTables;
     }
     private HashMap<String, Date> getLastUpdateTimeOfTables(){
