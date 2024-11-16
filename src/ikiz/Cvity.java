@@ -1,7 +1,6 @@
 package ikiz;
 //Sistem şu anda sadece MySQL ile çalışacak bi iznillâh..
 
-import ikiz.Services.ArrayPrinterService;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -16,33 +15,56 @@ public class Cvity{
     private String password;
     private Connection connext;
     private String schemaName;
-
+    private DBType dbType;
+    public enum DBType{
+        MYSQL,
+        MSSQL,
+        POSTGRESQL
+    }
     public Cvity(Connection connext, String userName, String password, String schemaName){
         this.connext = connext;
         this.schemaName = schemaName;
         this.userName = userName;
         this.password = password;
+        this.dbType = Cvity.detectDBType(connext);
         //BURALARIN SONRA DEĞİŞTİRİLMESİ LAZIM:
+        /*
         hostName = "localhost";
         portNumber = 3306;
+        */
     }
 
 //İŞLEM YÖNTEMLERİ:
     //SINIF YÖNTEMLERİ (ÖN YÖNTEMLER):
-    public static Connection connectBase(String userName, String password, String hostname, int portNumber){
-        return Cvity.connectDB(userName, password, hostname, "", portNumber);
+    public static Connection connectBase(String userName, String password, String hostname, int portNumber, Cvity.DBType dbType){
+        return Cvity.connectDB(userName, password, hostname, portNumber, "", dbType);
     }
-    public static Connection connectDB(String userName, String password, String hostName, String dbName, int portNumber){
+    public static Connection connectDB(String userName, String password, String hostName, int portNumber, String dbName, Cvity.DBType dbType){
         Connection cn = null;
-        try{
-            if(dbName != null)
-                if(!dbName.isEmpty())
-                cn = DriverManager.getConnection("jdbc:mysql://" + hostName + ":" + portNumber + "/" + dbName, userName, password);
-            else
-                cn = DriverManager.getConnection("jdbc:mysql://" + hostName + ":" + portNumber, userName, password);
+        if(dbType == null){
+            System.err.println("Veritabanı tipi belirtilmemiş!");
+            return null;
         }
-        catch(SQLException ex){
-            showErrorMessage(ex);
+        boolean connectToBase = false;
+        try{
+            String connectionString = "";
+            if(dbName == null)
+                connectToBase = true;
+            else if(dbName.isEmpty())
+                connectToBase = true;
+            
+            if(connectToBase){
+                connectionString = HelperForHelperForDBType.getHelper(dbType).getConnectionString(hostName, portNumber);
+            }
+            else{
+                connectionString = HelperForHelperForDBType.getHelper(dbType).getConnectionString(hostName, portNumber, dbName);
+            }
+            //System.out.println("Hâzırlanan bağlantı metni : " + connectionString);
+            cn = DriverManager.getConnection(connectionString, userName, password);
+        }
+        catch(SQLException exc){
+            //System.err.println("\'connectDB\' yöntemi çalıştırılırken hatâ : " +exc.toString());
+            showErrorMessage(exc);
         }
         if(cn == null)
             return null;
@@ -69,13 +91,14 @@ public class Cvity{
         }
         return false;
     }
-    public static String[] getTableNamesOnDB(Connection connection){
+    public static String[] getTableNamesOnDB(Connection connection, Cvity.DBType type){
         if(connection == null)
             return null;
         try {
-            Statement testStatement = connection.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            Statement testStatement = connection.createStatement();// Şu kombinasyon SQL Server'da desteklenmiyormuş : Rconnext.getMetaData().getDatabaseProductName()
             ArrayList<String> liTableNames = new ArrayList<>();
-            testStatement.execute("SHOW TABLES");
+            String order = HelperForHelperForDBType.getHelper(type).getSentenceForShowTables();
+            testStatement.execute(order);
             ResultSet rs = testStatement.getResultSet();
             String[] tableNames;
             for(int sayac = 0; rs.next() == true; sayac++){
@@ -95,6 +118,24 @@ public class Cvity{
     public static void showErrorMessage(SQLException DBException){//BURASI GELİŞTİRİLEBİLİR, HATALAR DAHA İYİ YÖNETİLEBİLİR Bİ İZNİLLÂH
         System.out.println("Hatâ kodu : " + DBException.getErrorCode() + "\n" + DBException.getMessage());
     }
+    public static Cvity.DBType detectDBType(Connection connext){
+        try{
+            if(connext.getMetaData().getDatabaseProductName().equals("MySQL"))
+                return DBType.MYSQL;
+            if(connext.getMetaData().getDatabaseProductName().equals("PostgreSQL"))// Teyyit edilecek
+                return DBType.POSTGRESQL;
+            if(connext.getMetaData().getDatabaseProductName().equals("Microsoft SQL Server")){// Teyyit edilecek
+                return DBType.MSSQL;}
+        }
+        catch(SQLException exc){
+            System.out.println("Veritabanı tipi tespit edilirken hatâ oluştu : " + exc.toString());
+        }
+        return null;
+    }
+
+    public HelperForDBType getHelperForDBType(){
+        return HelperForHelperForDBType.getHelper(this.dbType);
+    }
 
 //ERİŞİM YÖNTEMLERİ:
     public int getPortNumber(){
@@ -108,5 +149,8 @@ public class Cvity{
     }
     public String getSchemaName(){
         return schemaName;
+    }
+    public Cvity.DBType getDBType(){
+        return dbType;
     }
 }

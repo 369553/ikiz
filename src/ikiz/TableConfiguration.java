@@ -1,8 +1,11 @@
 package ikiz;
 
+import ikiz.Services.Helper;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.SortedSet;
 import java.util.TreeSet;
 /**
  * Bu sınıf bir tablo oluştururken gerekli yapılandırmaları tutmak
@@ -10,7 +13,7 @@ import java.util.TreeSet;
  * @author Mehmet Âkif
  */
 // Not : İndeksler için isim ataması şu an yapılmıyor
-public class TableConfiguration{
+public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
     private Class cls;
     private HashMap<String, Boolean> isConfSet;// <özellik, değerAtandıMı> : Bir özellik için değer atandıysa o özellik için 'true' olmalıdır
     private TableCharset.CHARSET charsetAsAll;// Tablodaki metîn tabanlı alanlar için genel karakter seti
@@ -19,7 +22,7 @@ public class TableConfiguration{
     private String primaryKey;// Birincil anahtarın uygulanacağı sütun ismi
     // varchar alanlar için sınır belirleme için alan eklenecek
     // karakter setinin alan özelinde olması için yapılar eklenecek, bi iznillâh
-    private TreeSet<String> fieldNames;// Verilen sınıftaki alanların isimleri
+    private SortedSet<String> fieldNames;// Verilen sınıftaki alanların isimleri
 
     public TableConfiguration(Class classOfTable){// cls : Yapılandırma yapılması istenen sınıf
         this.cls = classOfTable;
@@ -27,54 +30,51 @@ public class TableConfiguration{
     }
 
 // İŞLEM YÖNTEMLERİ:
-    public void setPrimaryKey(String primaryKey){// Birincil anahtar ataması yap
+    public boolean setPrimaryKey(String primaryKey){// Birincil anahtar ataması yap
         if(primaryKey == null)
-            return;
+            return false;
+        if(!isInFields(primaryKey))
+            return false;
         this.primaryKey = primaryKey;
+        getIsConfSet().put("primaryKey", Boolean.TRUE);
+        return true;
     }
-    public void addUniqueField(String fieldName){// Bir alan için 'münferid' olma özelliği ata
+    public boolean addUniqueField(String fieldName){// Bir alan için 'münferid' olma özelliği ata
         if(fieldName == null)
-            return;
-        if(isInTheList(uniqueFields, fieldName))// Zâten 'münferid' özelliği atandıysa işlemi sonlandır
-            return;
+            return false;
+        if(!isInFields(primaryKey))
+            return false;
+        if(Helper.isInTheList(uniqueFields, fieldName))// İlgili alan için zâten 'münferid' özelliği atandıysa işlemi sonlandır
+            return false;
         if(getIsConfSet().get("primaryKey")){// Birincil anahtar atandıysa
             if(getPrimaryKey().equals(fieldName))// ve bu alan için münferid olma özelliği eklenmeye çalışılıyorsa işlemi sonlandır
-                return;
+                return false;
         }
         getUniqueFields().add(fieldName);
         getIsConfSet().put("uniqueFields", Boolean.TRUE);
+        return true;
     }
-    public void addIndex(String fieldName){
+    public boolean addIndex(String fieldName){
         if(fieldName == null)
-            return;
+            return false;
+        if(!isInFields(primaryKey))
+            return false;
         if(getIsConfSet().get("primaryKey")){// Eğer birincil anahtar belirtilmişse
             if(primaryKey.equals(fieldName))// Birincil anahtar olan alana yeni indeks eklenmeye çalışılıyorsa işlemi sonlandır
-                return;
+                return false;
         }
-        if(isInTheList(getIndexes(), fieldName))// Eğer ilgili alan için daha evvel bir indeks zâten varsa işlemi sonlandır ; bu işlemin performansı arttırılacak
-            return;
+        if(Helper.isInTheList(getIndexes(), fieldName))// Eğer ilgili alan için daha evvel bir indeks zâten varsa işlemi sonlandır ; bu işlemin performansı arttırılacak
+            return false;
         getIndexes().add(fieldName);
         getIsConfSet().put("indexes", Boolean.TRUE);
+        return true;
     }
-    public void setIsConfSet(HashMap<String, Boolean> isConfSet){
-        if(isConfSet == null)
-            return;
-        this.isConfSet = isConfSet;
-    }
-    public void setCharsetAsAll(TableCharset.CHARSET charset){
+    public boolean setCharsetAsAll(TableCharset.CHARSET charset){
         if(charset == null)
-            return;
+            return false;
         this.charsetAsAll = charset;
-    }
-    public void setUniqueFields(ArrayList<String> uniqueFields){
-        if(uniqueFields == null)
-            return;
-        this.uniqueFields = uniqueFields;
-    }
-    public void setIndexes(ArrayList<String> indexes){
-        if(indexes == null)
-            return;
-        this.indexes = indexes;
+        getIsConfSet().put("charsetAsAll", Boolean.TRUE);
+        return true;
     }
     // ARKAPLAN İŞLEM YÖNTEMLERİ:
     private void fillIsConfSetMap(){// Özellik haritasını başlat
@@ -83,17 +83,34 @@ public class TableConfiguration{
             isConfSet.put(f.getName(), Boolean.FALSE);
         }
     }
-    private <T> boolean isInTheList(ArrayList<T> list, T element){// Listenin verilen elemanı barındırıp, barındırmadığını bildir
-        for(T elm : list){
-            if(elm.equals(element))
-                return true;
-        }
-        return false;
-    }
     private void assignFieldNames(){
         for(Field f : this.cls.getDeclaredFields()){
             getFieldNames().add(f.getName());
         }
+    }
+    // 'TableConfiguration' nesnesini zerk etmek için kullanılan bâzı arkaplan işlemleri:
+    private void setIsConfSet(HashMap<String, Boolean> isConfSet){
+        if(isConfSet == null)
+            return;
+        this.isConfSet = isConfSet;
+    }
+    private void setUniqueFields(ArrayList<String> uniqueFields){// Bu yöntemler 'tehlikelidir'; çünkü diğerleriyle olan uyumluluğu sağlamıyor; misal, 'münferid' olma özelliği eklenen alanlar için getIsConfSet() yapılandırılmıyor
+        if(uniqueFields == null)
+            return;
+        this.uniqueFields = uniqueFields;
+    }
+    private void setIndexes(ArrayList<String> indexes){
+        if(indexes == null)
+            return;
+        this.indexes = indexes;
+    }
+    private boolean isInFields(String fieldName){
+        Iterator<String> iter = getFieldNames().iterator();
+        while(iter.hasNext()){
+            if(iter.next().equals(fieldName))
+                return true;
+        }
+        return false;
     }
 
 // ERİŞİM YÖNTEMLERİ:
@@ -124,9 +141,9 @@ public class TableConfiguration{
     public String getPrimaryKey(){
         return primaryKey;
     }
-    private TreeSet<String> getFieldNames(){
+    private SortedSet<String> getFieldNames(){
         if(fieldNames == null){
-            fieldNames = new TreeSet<String>();
+            fieldNames = new TreeSet<String>();// ? 
         }
         return fieldNames;
     }

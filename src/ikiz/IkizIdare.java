@@ -1,6 +1,7 @@
 package ikiz;
 
 import ikiz.Services.DTService;
+import ikiz.Services.Helper;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -12,6 +13,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 
@@ -42,18 +44,66 @@ public class IkizIdare{
     public static boolean startIkizIdare(Cvity connectivity){
         if(connectivity == null)
             return false;
-        if(testConnection(connectivity) == false)
-            return false;
+        if(testConnection(connectivity) == false){
+            return false;}
         ikiz = new IkizIdare(connectivity);
         return true;
     }
-    public boolean produceTable(Object object){//ArrayList ve kullanıcı tanımlı tipler için çalışmaz
-        if(object == null)
+    //SINIF FONKSİYONLARI:
+    public static String extractTableName(Class cls){
+        if(cls == null)
+            return null;
+        String[] splitted = cls.getName().split("\\.");
+        return splitted[splitted.length - 1];
+    }
+    public static List<String> getTableNames(Cvity connectivity){
+        String showTablesOrder = connectivity.getHelperForDBType().getSentenceForShowTables();
+//        System.err.println("sentence : " + showTablesOrder);
+        List<String> listOfTables = new ArrayList<String>();
+        try{
+            ResultSet rs = connectivity.getConnext().createStatement().executeQuery(showTablesOrder);
+            if(rs != null){
+                while(rs.next()){
+                    listOfTables.add(rs.getString(1));
+                }
+                return listOfTables;
+            }
+            else
+                return null;
+        }
+        catch(SQLException exc){
+            System.err.println("Tablo isimleri alınırken hatâyla karşılaşıldı : " + exc.toString());
+        }
+        return null;
+    }
+
+    public boolean integrateTableToIkiz(String tableName){
+        if(tableName == null)
             return false;
-        Class cl = object.getClass();
-        String tableName = cl.getSimpleName();
+        if(tableName.isEmpty())
+            return false;
+        boolean isIn = Helper.isInTheList(getWorkingTables(), tableName);
+        if(isIn)// Tablo zâten sisteme entegre edilmişse işlemi sonlandır;
+            return true;
+        List<String> listOfTables = getTableNames(connectivity);// Tablo isimlerini al
+        Iterator<String> iter = listOfTables.iterator();
+        while(iter.hasNext()){
+            if(iter.next().equals(tableName)){
+                getWorkingTables().add(tableName);// Tabloyu çalışılan tablo isimlerinin arasına ekle
+                return true;
+            }
+        }
+        return false;
+    }
+    public boolean produceTable(Class tableClass){
+        return produceTable(tableClass, null);
+    }
+    public boolean produceTable(Class tableClass, TableConfiguration confs){//ArrayList ve kullanıcı tanımlı tipler için çalışmaz
+        if(tableClass == null)
+            return false;
+        String tableName = tableClass.getSimpleName();
         StringBuilder query;
-        Field[] fields = cl.getDeclaredFields();
+        Field[] fields = tableClass.getDeclaredFields();
         String[] columnNames = new String[fields.length];
         Class[] columnTypes = new Class[fields.length];
         int takedAttributesNumber = 0;
@@ -74,12 +124,23 @@ public class IkizIdare{
             if(sayac != takedAttributesNumber - 1)
                 query.append(", ");
         }
+        
+        {//BAĞIMLILIKLAR EKLENECEK:
+            if(confs != null){// Tablo sınıfı için yapılandırma nesnesi gönderildiyse;
+                if(confs.getClassOfTable().equals(tableClass)){// Gönderilen yapılandırma nesnesinin sınıfı ile tablosu üretilmek istenen sınıf aynı ise;
+                    //1. Birincil anahtar ekle:
+                    if(confs.getIsConfSet().get("primaryKey")){// Birincil anahtar ayarı 'belirtildi' olarak işâretliyse
+                        query.append(", PRIMARY KEY(" + confs.getPrimaryKey() + ")");
+                    }
+                }
+            }
+        }
             query.append(");");
         try{
             System.out.println("Gönderilen komut : " + query.toString());
             Statement st = connectivity.getConnext().createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-            result = st.execute(query.toString());
-            if(result == false)
+            result = st.execute(query.toString());// İŞLEM BAŞARILI OLDUĞU HÂLDE 'result' = false dönüyor; çünkü geriye dönüş (ResultSet) istenmeyen durumlarda 'false' dönüyor; bu 'false' işlemin başarısız olduğunu değil, işlemden geriye 'ResultSet' dönmediğini ifâde ediyor
+            if(!result)
                 return false;
             st.clearBatch();
             boolean confirming = st.execute("SELECT * FROM " + tableName);// Buraya limit koyulmalı; boşuna tüm vriler çekilmemeli
@@ -203,6 +264,25 @@ public class IkizIdare{
         }
         query.append(");");
         return true;
+    }
+    public boolean deleteTable(Class cls){// Hangi sınıfla ilişkili tablo silinmek isteniyorsa parametre olarak verilmelidir.
+        boolean tableDetected = false;// Tablo üzerinde çalışılan bir tablo ise 'true' olmalıdır
+        Iterator<String> iter = getWorkingTables().iterator();
+        String tableName = extractTableName(cls);
+        while(iter.hasNext()){
+            if(iter.next().equals(tableName))
+                tableDetected = true;
+        }
+        if(tableDetected){
+            String delOrder = "DROP TABLE " + tableName;
+            try{
+                this.connectivity.getConnext().createStatement().execute(delOrder);
+            }
+            catch(SQLException exc){
+                System.err.println("Tablo silinirken hatâ oluştu : " + exc.toString());
+            }
+        }
+        return false;
     }
     public void setNullToCol(){//GEÇİCİ FONKSİYON, SONRA SİL
         String sql = "UPDATE testSinifi SET name = null WHERE name=\"boş\"";
@@ -430,7 +510,7 @@ public class IkizIdare{
     private static boolean testConnection(Cvity connectivity){
         if(connectivity == null)
             return false;
-           if(Cvity.getTableNamesOnDB(connectivity.getConnext()) == null)// Eğer veritabanında hiç tablo yoksa sistemi başlatma
+           if(Cvity.getTableNamesOnDB(connectivity.getConnext(), connectivity.getDBType()) == null)// Eğer veritabanında hiç tablo yoksa sistemi başlatma
                return false;
         return true;
     }
