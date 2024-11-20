@@ -27,11 +27,6 @@ public class Cvity{
         this.userName = userName;
         this.password = password;
         this.dbType = Cvity.detectDBType(connext);
-        //BURALARIN SONRA DEĞİŞTİRİLMESİ LAZIM:
-        /*
-        hostName = "localhost";
-        portNumber = 3306;
-        */
     }
 
 //İŞLEM YÖNTEMLERİ:

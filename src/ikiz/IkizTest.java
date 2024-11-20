@@ -1,5 +1,9 @@
 package ikiz;
 
+import base.ArrayClass;
+import base.MapClass;
+import base.OtherArrayClass;
+import base.listClass;
 import base.testSinifi;
 import java.sql.Connection;
 import java.util.List;
@@ -55,6 +59,62 @@ public class IkizTest{
             System.err.println("Tablo oluşturulamadı!");
             return;
         }
+    }
+    public void produceTableWithListField(){
+        boolean isSuccess = getIdare().produceTable(listClass.class);
+        if(isSuccess)
+            System.out.println("Liste alanlı sınıf oluşturuldu");
+        else
+            System.err.println("Liste alanlı sınıf oluşturulamadı");
+    }
+    public void produceTableWithArrayField(){
+        boolean isSuccess = getIdare().produceTable(ArrayClass.class);
+        if(isSuccess)
+            System.out.println("Dizi alanlı sınıf oluşturuldu");
+        else
+            System.err.println("Dizi alanlı sınıf oluşturulamadı");
+    }
+    public void produceTableWithOtherArrayField(){
+        boolean isSuccess = getIdare().produceTable(OtherArrayClass.class);
+        if(isSuccess)
+            System.out.println("Diğer dizi alanlı sınıf oluşturuldu");
+        else
+            System.err.println("Diğer dizi alanlı sınıf oluşturulamadı");
+    }
+    public void produceTableWithMapField(){
+        boolean isSuccess = getIdare().produceTable(MapClass.class);
+        if(isSuccess)
+            System.out.println("Harita alanlı sınıf oluşturuldu");
+        else
+            System.err.println("Harita alanlı sınıf oluşturulamadı");
+    }
+    public void addDataForCheckListField(){
+        boolean isSuccess = getIdare().addRowToDB(new listClass());
+        if(isSuccess)
+            System.out.println("Liste alanlı tablo için ekleme başarılı");
+        else
+            System.err.println("Liste alanlı tablo için ekleme başarısız");
+    }
+    public void addDataForArrayField(){
+        boolean isSuccess = getIdare().addRowToDB(new ArrayClass());
+        if(isSuccess)
+            System.out.println("Dizi alanlı tablo için ekleme başarılı");
+        else
+            System.err.println("Dizi alanlı tablo için ekleme başarısız");
+    }
+    public void addDataForOtherArrayField(){
+        boolean isSuccess = getIdare().addRowToDB(new OtherArrayClass());
+        if(isSuccess)
+            System.out.println("Dizi alanlı diğer tablo için ekleme başarılı");
+        else
+            System.err.println("Dizi alanlı diğer tablo için ekleme başarısız");
+    }
+    public void addDataForMapField(){
+        boolean isSuccess = getIdare().addRowToDB(new MapClass());
+        if(isSuccess)
+            System.out.println("Harita alanlı tablo için ekleme başarılı");
+        else
+            System.err.println("Harita alanlı tablo için ekleme başarısız");
     }
     public void fetchData(){
         List<testSinifi> data = getIdare().getData(testSinifi.class);

@@ -15,4 +15,12 @@ public class HelperForPostgreSQL implements HelperForDBType{
     public String getConnectionString(String hostName, int portNumber, String dbName){
         return "jdbc:postgresql://" + hostName + ":" + portNumber + "/" + dbName;
     }
+    @Override
+    public char getStartSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
+        return '`';
+    }
+    @Override
+    public char getEndSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
+        return '`';
+    }
 }

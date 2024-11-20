@@ -17,4 +17,12 @@ public class HelperForMSSQL implements HelperForDBType{
         //String url = "jdbc:sqlserver://localhost:1434;user=SA;password=LINQSE.1177;trustServerCertificate=true;";
 //        jdbc:sqlserver://localhost:1434;trustServerCertificate=true;
     }
+    @Override
+    public char getStartSymbolOfName(){
+        return '[';
+    }
+    @Override
+    public char getEndSymbolOfName(){
+        return ']';
+    }
 }

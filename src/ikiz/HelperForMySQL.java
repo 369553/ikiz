@@ -15,4 +15,12 @@ public class HelperForMySQL implements HelperForDBType{
     public String getConnectionString(String hostName, int portNumber, String dbName){
         return "jdbc:mysql://" + hostName + ":" + portNumber + "/" + dbName;
     }
+    @Override
+    public char getStartSymbolOfName(){
+        return '`';
+    }
+    @Override
+    public char getEndSymbolOfName(){
+        return '`';
+    }
 }

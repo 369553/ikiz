@@ -16,27 +16,25 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class IkizIdare{
-    private Cvity connectivity;
     private static IkizIdare ikiz;
-    private HashMap<String, Boolean> attributesPolicy;
-    private boolean takeDateAttributeAsDateTime = true;
-    protected boolean alwaysContinue = true;//Eğer kullanıcın alınmasını istediği alanın değer alınamadıysa, kalan değerlerle veritabanına yazmaya çalış
-    protected boolean workWithNonParameterConstructor = true;//
-    private boolean workWithSpecialBuilder = false;//Yalnızca ikizIdare sınıfından bir nesnenin 'specialCode' kullanarak erişebileceği bir inşâcı ile çalış
-    private String specialCode;//Özel inşâcı ile çalışıldığı durumda özel inşâcının ikizIdare için ilgili sınıftan bir değişken üretmesi için gereken kod
+    private Cvity connectivity;
+    private Confs confs;// IkizSistemi yapılandırma ayarları
     private ArrayList<String> workingTables;
-    private boolean bufferMode = false;//Her veri çekme isteğinde veritabanından veri çekilmemesi için verilerin İkiz'de saklandığı bir çalışma şekli
     private HashMap<String, List> bufferTables;
     private HashMap<String, Date> lastUpdateTimeOfTables;//Tabloların en son güncellendiği zamânı belirtiyor.
     private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.
     private ErrorTable errorTable;//Hatâların yazılması ve gösterilmesiyle ilgili bir sistem
+    private final char start, end;
 
     private IkizIdare(Cvity connectivity){
         this.connectivity = connectivity;
-        getAttributesPolicy();
+        this.start = connectivity.getHelperForDBType().getStartSymbolOfName();
+        this.end = connectivity.getHelperForDBType().getEndSymbolOfName();
         errorTable = new ErrorTable();
+        this.confs = Confs.getDefaultConfs();
     }
 
 //İŞLEM YÖNTEMLERİ:
@@ -108,19 +106,98 @@ public class IkizIdare{
         Class[] columnTypes = new Class[fields.length];
         int takedAttributesNumber = 0;
         boolean result = false;
-        for(int sayac = 0; sayac < fields.length; sayac++){
+        for(int sayac = 0; sayac < fields.length; sayac++){// Alan isimleri ve veri tiplerini belirleme;
             if(takeThisField(fields[sayac].getModifiers())){
-                columnNames[takedAttributesNumber] = fields[sayac].getName();
-                columnTypes[takedAttributesNumber] = fields[sayac].getType();
-                takedAttributesNumber++;
+                Class typeOfField = fields[sayac].getType();
+//                System.out.println("Verinin tipi : " + typeOfField);
+                // Kontrol - 1 : Tipi nedir?
+                if(isBasicType(typeOfField)){// Temel veri tipiyse ilgili alan için verileri al
+                    columnNames[takedAttributesNumber] = fields[sayac].getName();
+                    columnTypes[takedAttributesNumber] = fields[sayac].getType();
+                    takedAttributesNumber++;
+                }
+                else{// Bu alan temel veri tipi değilse;
+                    HashMap<String, Boolean> results = isListOrMapOrArrayType(typeOfField);
+                    boolean isArray = results.get("isArray");
+                    boolean isMap = results.get("isMap");
+                    if(results.get("result")){// Eğer veri tipi List veyâ Map veyâ dizi ise;
+                        if(this.confs.getMethodForListAndMapFields() != Confs.METHOD_FOR_LIST_AND_MAP_FIELDS.DONT_TAKE){// bu alanlar 'alınmayacak' olarak işâretlenmemişse;
+                            String[] genericTypes = new String[2];
+                            if(isArray){// Dizi ise;
+                                String typeName = typeOfField.getSimpleName();
+                                genericTypes[0] = typeName.substring(0, typeName.length() - 2);
+                                System.out.println("Dizinin veri tipi : " + genericTypes[0]);
+                                if(!canTakeableThisGenericTypeOfField(genericTypes[0])){// Bu alan
+                                    System.err.println("Dizinin veri tipi temel veri tiplerinden olmadığında dizi alınamıyor");
+                                    continue;// Bu alanı alma
+                                }
+                                //.;.
+                            }
+                            else{// Harita veyâ liste ise;
+                                Class generalType = fields[sayac].getType();
+                                if(results.get("isList")){// İlgili alan 'List' tipinde ise;
+                                    String typeNameOfGenericType = getGenericTypeNameOfField(fields[sayac]);
+                                    if(typeNameOfGenericType == null){
+                                        continue;// İlgili alanın 'generic' tipi alınamadığı için bu alanı alma
+                                    }
+                                    System.out.println("generalType : " + generalType.getName());
+                                    System.out.println("genericType : " + typeNameOfGenericType);
+                                    if(!canTakeableThisGenericTypeOfField(typeNameOfGenericType)){// 'generic type' yanî listevâri alanın veri tipi istenilen tip değilse;
+                                        continue;// Bu alanı alma!
+                                    }
+                                    genericTypes[0] = typeNameOfGenericType;
+                                }
+                                else{// İlgili alan 'Map' tipinde ise;
+                                    genericTypes = getGenericTypeNamesOfField(fields[sayac]);
+                                    if(genericTypes == null)
+                                        continue;
+                                    boolean keepGo = true;
+                                    for(String str : genericTypes){// İlgili alanlar destekleniyor mu?
+                                        if(str.isEmpty()){
+                                            keepGo = false;
+                                            break;
+                                        }
+                                        if(!canTakeableThisGenericTypeOfField(str)){
+                                            keepGo = false;
+                                            break;
+                                        }
+                                    }
+                                    if(!keepGo)// İlgili generic tipler gerekli şartları sağlamıyorlarsa bu alanı alma
+                                        continue;
+                                }
+                            }
+                            columnNames[takedAttributesNumber] = fields[sayac].getName();
+                            columnTypes[takedAttributesNumber] = String.class;// Bu alanda, ilgili tablo ismi saklanacağından alanın tipi String olmalı veyâ değerler ',' ile ayrılmış şekilde saklanacaksa yine String olmalı
+                            if(this.confs.getMethodForListAndMapFields() == Confs.METHOD_FOR_LIST_AND_MAP_FIELDS.TAKE_AS_NEW_TABLE){// İlgili liste veyâ dizi veyâ haritalar yeni tablo olarak kaydedilecekse;
+                                String fieldTableName = "ikiz_" + tableName + "_" + columnNames[takedAttributesNumber];
+                                genericTypes[0] = getTypeNameForDB(genericTypes[0]);
+                                if(isMap)
+                                    genericTypes[1] = getTypeNameForDB(genericTypes[1]);
+                                produceNewTableForField(fieldTableName, isArray, isMap, genericTypes);
+                            }
+                            else{// İlgili alanlar yalnızca yeni sütun olarak kayıt edilecekse
+                                //.;.
+                            }
+                            takedAttributesNumber++;
+                        }
+                        else{// Bu alan liste veyâ dizi veyâ harita; fakat bu alanlar 'alınmayacak' olarak işâretlenmiş
+                            continue;// Bu alanı alma
+                        }
+                    }
+                    else{// Bu alan temel veri tipi veyâ liste veyâ harita veyâ dizi değilse;
+                        System.err.println("Üzgünüz! Ikiz henüz kullanıcı tanımlı veri tipleriyle çalışamıyor");
+                        continue;// Bu alanı alma
+                    }
+                }
             }
         }
         System.out.println("tableName : "  +tableName);
-        query = new StringBuilder("CREATE TABLE " + tableName);
+        query = new StringBuilder("CREATE TABLE " + start + tableName + end);
             query.append("(");
         for(int sayac = 0; sayac < takedAttributesNumber; sayac++){
-            query.append(columnNames[sayac] + " ");
-            query.append(getTypeNameForDB(columnTypes[sayac]));
+            query.append(start).
+            append(columnNames[sayac]).append(end).append(" ");
+            query.append(getTypeNameForDB(columnTypes[sayac].getTypeName()));
             if(sayac != takedAttributesNumber - 1)
                 query.append(", ");
         }
@@ -130,7 +207,7 @@ public class IkizIdare{
                 if(confs.getClassOfTable().equals(tableClass)){// Gönderilen yapılandırma nesnesinin sınıfı ile tablosu üretilmek istenen sınıf aynı ise;
                     //1. Birincil anahtar ekle:
                     if(confs.getIsConfSet().get("primaryKey")){// Birincil anahtar ayarı 'belirtildi' olarak işâretliyse
-                        query.append(", PRIMARY KEY(" + confs.getPrimaryKey() + ")");
+                        query.append(", PRIMARY KEY(").append(start).append(confs.getPrimaryKey()).append(end).append(")");
                     }
                 }
             }
@@ -138,21 +215,16 @@ public class IkizIdare{
             query.append(");");
         try{
             System.out.println("Gönderilen komut : " + query.toString());
-            Statement st = connectivity.getConnext().createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-            result = st.execute(query.toString());// İŞLEM BAŞARILI OLDUĞU HÂLDE 'result' = false dönüyor; çünkü geriye dönüş (ResultSet) istenmeyen durumlarda 'false' dönüyor; bu 'false' işlemin başarısız olduğunu değil, işlemden geriye 'ResultSet' dönmediğini ifâde ediyor
-            if(!result)
+            Statement st = connectivity.getConnext().createStatement();// Bu cursor tipinde hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE
+            st.execute(query.toString());
+            if(!confirmTableInDB(tableName)){
+                System.err.println("Tablo oluşturma işlemi başarısız oldu");
                 return false;
-            st.clearBatch();
-            boolean confirming = st.execute("SELECT * FROM " + tableName);// Buraya limit koyulmalı; boşuna tüm vriler çekilmemeli
-            ResultSet rs = st.getResultSet();
-//            return null != rs.getObject(columnNames[0], columnTypes[0]);
-            if(rs.getObject(columnNames[0], columnTypes[0]) != null){
-                getLastUpdateTimeOfTables().put(tableName, DTService.getService().getTime());
-                getWorkingTables().add(tableName);
-                return true;
             }
-            else
-                return false;
+            st.clearBatch();
+            getLastUpdateTimeOfTables().put(tableName, DTService.getService().getTime());
+            getWorkingTables().add(tableName);
+            return true;
         }
         catch(SQLException ex){
             System.out.println("ex.getMessage : (konum : produceTable)" + ex.getMessage());
@@ -163,7 +235,7 @@ public class IkizIdare{
         if(entity == null)
             return false;
         if(!controlGetterAndSetterForHideFields(entity, true)){
-            if(!alwaysContinue){
+            if(!this.confs.alwaysContinue){
                 System.out.println("Gizli bir alanın getter yöntemi bulunamadı; veritabanı ayarında eksik değerlerle işleme devâm etme kapalı olduğu için işlem sonlandırılıyor");
                 return false;
             }
@@ -222,7 +294,7 @@ public class IkizIdare{
                     }
                     catch(IllegalAccessException ex1){
                         System.out.println("Hatâ, yetkisiz erişim...");
-                        if(!alwaysContinue){
+                        if(!this.confs.alwaysContinue){
                             callIsntCompleted("AddRowToDB", entity, tableName);
                         }
                         value = null;
@@ -238,7 +310,7 @@ public class IkizIdare{
                 }
                 catch(NoSuchMethodException ex1){
                     System.out.println("Hatâ, erişim belirtecinden dolayı okunamayan alan bilgisi için get yöntemi eksik gibi!");
-                    if(!alwaysContinue)
+                    if(!this.confs.alwaysContinue)
                         return false;
                     value = null;
                 }
@@ -293,27 +365,11 @@ public class IkizIdare{
             System.err.println("Başarısız işlem!");
         }
     }
-    public void setAttributesPolicy(boolean takePublicFields, boolean takePrivateFields, boolean takeDefaultFields, boolean takeProtectedFields){
-        if(takePrivateFields || takeDefaultFields || takeProtectedFields){
-            //Kullanıcıya bu sınıfların getter ve setter yöntemleri içermesi gerektiğini hâtırlat
-//            controlGetterAndSetterForHideFields();
-        }
-        getAttributesPolicy().put("public", takePublicFields);
-        attributesPolicy.put("private", takePrivateFields);
-        attributesPolicy.put("default", takeDefaultFields);
-        attributesPolicy.put("protected", takeProtectedFields);
-    }
-    public void setTakeDateAttributeAsDateTime(boolean policy){
-        this.takeDateAttributeAsDateTime = policy;
-    }
-    public void setAlwaysContinueAttribute(boolean value){
-        this.alwaysContinue = value;
-    }
     public <T> List<T> getData(Class<T> target){//Tablodaki verilerin büyük olması durumunda verilerin tamâmını almak için bunları bigint gibi sayılarda tutmalıyız
         String tableName = target.getSimpleName();
         if(target == null)
             return null;
-        if(bufferMode){
+        if(this.confs.bufferMode){
             List data = getDataFromBuffer(tableName);
             if(data != null)
                 return data;
@@ -328,8 +384,7 @@ public class IkizIdare{
         }
         boolean go = false;
         try{
-            st = this.getConnectivity().getConnext().createStatement(
-                    ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE);
+            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
             result = st.executeQuery("SHOW TABLES");
 //            st.close();
         }
@@ -363,8 +418,7 @@ public class IkizIdare{
         result = null;
         ArrayList<HashMap<String, Object>> liDataBeforeInstance = null;
         try{
-            st = this.getConnectivity().getConnext().createStatement(
-                ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE);
+            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
             result = st.executeQuery("SELECT * FROM " + tableName);
             liData = new ArrayList<T>();
             if(result == null){//Tabloda hiç satır yoksa
@@ -434,7 +488,7 @@ public class IkizIdare{
         }
         //Eğer parametresiz yapıcı fonksiyon yoksa:
         //.;.
-        if(workWithNonParameterConstructor && css[0].getParameterCount() != 0){
+        if(this.confs.workWithNonParameterConstructor && css[0].getParameterCount() != 0){
                 System.out.println("Parametresiz yapıcı yöntemle çalışma etkin; lâkin sınıfın böyle bir kurucu yöntemi yok!");
                 return null;
         }
@@ -447,8 +501,7 @@ public class IkizIdare{
         Statement st = null;
         ResultSet result = null;
         try{
-            st = this.getConnectivity().getConnext().createStatement(
-                ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE);
+            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
             result = st.executeQuery("SHOW TABLES");
             while(result.next()){
                 String name = result.getString(1);
@@ -461,8 +514,7 @@ public class IkizIdare{
         
         //DENEME - 2:
         try{
-            st = this.getConnectivity().getConnext().createStatement(
-                ResultSet.TYPE_SCROLL_SENSITIVE,ResultSet.CONCUR_UPDATABLE);
+            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_SENSITIVE,ResultSet.CONCUR_UPDATABLE
             result = st.executeQuery("SELECT * FROM " + tableName);
 //            System.out.println("resultSet yapılandırma bilgileri : " + result.getMetaData().toString());
             while(result.next()){
@@ -536,33 +588,68 @@ public class IkizIdare{
         }
         if(strModifier == "")
             return false;
-        return getAttributesPolicy().get(strModifier);
+        return this.confs.getAttributesPolicy().get(strModifier);
     }
-    private String getTypeNameForDB(Class cl){
-//        System.err.println("typeName : " + cl.getTypeName());
-        String typeName = "";
-        switch(cl.getTypeName()){
+    private String getTypeNameForDB(String typeName){
+        String dbType = "";
+        switch(typeName){
             case "java.lang.String" :{
-                typeName = "text";
+                dbType = "text";
                 break;
             }
             case "int" :{
-                typeName = "int";
+                dbType = "int";
+                break;
+            }
+            case "java.lang.Integer" :{
+                dbType = "int";
+                break;
+            }
+            case "double" :{
+                dbType = "int";
+                break;
+            }
+            case "float" :{
+                dbType = "int";
+                break;
+            }
+            case "java.lang.Double" :{
+                dbType = "int";
+                break;
+            }
+            case "java.lang.Float" :{
+                dbType = "int";
                 break;
             }
             case "boolean" :{
-                typeName = "bit";
+                dbType = "int";
+                break;
+            }
+            case "java.lang.Boolean" :{
+                dbType = "int";
+                break;
+            }
+            case "java.lang.Byte" :{
+                dbType = "bit";
+                break;
+            }
+            case "char" :{
+                dbType = "bit";
+                break;
+            }
+            case "java.lang.Character" :{
+                dbType = "bit";
                 break;
             }
             case "java.util.Date" :{
-                if(takeDateAttributeAsDateTime)
-                    typeName = "DATETIME";
+                if(this.confs.takeDateAttributeAsDateTime)
+                    dbType = "DATETIME";
                 else
-                    typeName = "DATE";
+                    dbType = "DATE";
                 break;
             }
         }
-        return typeName;
+        return dbType;
     }
     private boolean controlGetterAndSetterForHideFields(Object entity, boolean searchForJustGetter){
         Class cl = entity.getClass();
@@ -648,7 +735,7 @@ public class IkizIdare{
         return instance;
     }
     private List getDataFromBuffer(String tableName){
-        if(!bufferMode){
+        if(!this.confs.bufferMode){
             System.err.println("veri saklama modu pasif durumda");
             //Hatâ - uyarı fırlat
             return null;
@@ -662,14 +749,14 @@ public class IkizIdare{
         return bufferTables.get(tableName);
     }
     private void refreshDataOnLocalArea(List data){//Veri saklama modu (bufferMode) etkin ise verileri verilerin saklandığı yerel alandaki ilgili yeri güncelle
-        if(!bufferMode)
+        if(!this.confs.bufferMode)
             return;
         String tableName = data.getClass().getName();
         System.out.println("data.getClass().getName");
         getBufferTables().put(tableName, data);
     }
     private boolean removeDataOnLocalArea(Object[] data){//Veri saklama modu açıkken bir tablo silindiğinde eğer o tablodaki kayıtlar saklanıyor idiyse, onları sil
-        if(!bufferMode)
+        if(!this.confs.bufferMode)
             return false;
         String tableName = data.getClass().getName();
         if(getBufferTables().get(tableName) == null){
@@ -679,24 +766,248 @@ public class IkizIdare{
         getBufferTables().remove(tableName);
         return true;
     }
-    private void setUpdateModeOfTable(String tableName, UpdateMode mode){
-        if(!bufferMode)
-            return;
-        boolean isFound = false;
-        for(String table : getWorkingTables()){
-            if(table.equals(tableName)){
-                isFound = true;
+    private boolean isBasicType(Class type){
+        boolean isSuccess = false;
+        switch(type.getName()){
+            case "int" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Integer" : {
+                isSuccess = true;
+                break;
+            }
+            case "double" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Double" : {
+                isSuccess = true;
+                break;
+            }
+            case "float" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Float" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.String" : {
+                isSuccess = true;
+                break;
+            }
+            case "char" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Character" : {
+                isSuccess = true;
+                break;
+            }
+            case "boolean" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Boolean" : {
+                isSuccess = true;
                 break;
             }
         }
-        if(!isFound)
-            return;
-        UpdateMode currentMode = getUpdateModeOfTables().get(tableName);
-        if(currentMode == null)
-            return;
+        return isSuccess;
     }
-    private void setUpdateModeOfTableForAllTables(UpdateMode mode){
-        
+    private HashMap<String, Boolean> isListOrMapOrArrayType(Class cls){
+        HashMap<String, Boolean> res = new HashMap<String, Boolean>();
+        res.put("result", Boolean.FALSE);
+        res.put("isArray", Boolean.FALSE);
+        res.put("isList", Boolean.FALSE);
+        res.put("isMap", Boolean.FALSE);
+        if(cls.isArray()){
+            res.put("result", Boolean.TRUE);
+            res.put("isArray", Boolean.TRUE);
+            return res;
+        }
+        try{
+            Class casted = cls.asSubclass(List.class);
+            res.put("result", Boolean.TRUE);
+            res.put("isList", Boolean.TRUE);
+        }
+        catch(Exception exc){// Eğer List'e dönüştürme işlemi başarısız olursa Map'e dönüştürmeye çalış
+            //System.err.println("Hatâ (IkizIdare.isListOrMapOrArrayType()) : " + exc.toString());
+            try{
+                Class otherCasted = cls.asSubclass(Map.class);
+                res.put("result", Boolean.TRUE);
+                res.put("isMap", Boolean.TRUE);
+            }
+            catch(Exception inExc){
+                System.out.println("Hatâ (IkizIdare.isListOrMapOrArrayType().catch()) : " + inExc.toString());
+            }
+        }
+        return res;
+    }
+    private String getGenericTypeNameOfField(Field field){// Verilen 'objClass' sınıfının verilen 'field' alanının generic tipini belirlemek için..
+        try{
+            String genTypeName = field.getGenericType().getTypeName();
+            String absoluteName = genTypeName.substring(genTypeName.indexOf('<') + 1, genTypeName.indexOf('>'));
+            System.out.println("absoluteName : " + absoluteName);
+            return absoluteName;
+        }
+        catch(Exception exc){
+            System.err.println("Verilen tipin generic değil! exc.toString : " + exc.toString());
+        }
+        return null;
+    }
+    private String[] getGenericTypeNamesOfField(Field field){
+        String[] values = new String[2];
+        String genType = field.getGenericType().getTypeName();
+        String[] splitted = genType.substring(genType.indexOf('<') + 1, genType.length() - 1).split(",");
+        values[0] = splitted[0].trim();
+        values[1] = splitted[1].trim();
+        return values;
+    }
+    private boolean canTakeableThisGenericTypeOfField(String genericTypeName){
+        if(genericTypeName == null)
+            return false;
+        if(genericTypeName.isEmpty())
+            return false;
+        boolean take = false;
+        switch(genericTypeName){
+            case "int" :{
+                take = true;
+                break;
+            }
+            case "double" :{
+                take = true;
+                break;
+            }
+            case "float" :{
+                take = true;
+                break;
+            }
+            case "boolean" :{
+                take = true;
+                break;
+            }
+            case "byte" :{
+                take = true;
+                break;
+            }case "char" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Integer" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Double" :{
+                take = true;
+                break;
+            }
+            case "java.lang.String" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Float" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Boolean" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Character" :{
+                take = true;
+                break;
+            }
+            case "java.lang.Byte" :{
+                take = true;
+                break;
+            }
+        }
+        return take;
+    }
+    private boolean produceNewTableForField(String tableName, boolean isArray, boolean isMap, String[] dataTypesForDB){
+        StringBuilder query = new StringBuilder();
+        try{
+            query.append("CREATE TABLE ").append(tableName).append(" (");
+            if(isMap){// Eğer ilgili alan bir harita ise, tabloda 'key' ve 'value' alanlarını oluştur; 'key' alanını birincil anahtar yap.
+                query.append(start + "key" + end + " " + dataTypesForDB[0] + ", value ").append(dataTypesForDB[1]).
+                        append(", PRIMARY KEY(" + start + "key" + end + ")");
+            }
+            else{// Liste veyâ dizi içerisinde aynı değerden olabileceğinden bu alan birincil anahtar yapılamaz
+                query.append("value ").append(dataTypesForDB[0]);
+            }
+            query.append(");");
+            System.out.println("Alan için yeni tablo : " + query.toString());
+            this.connectivity.getConnext().createStatement().execute(query.toString());
+            return true;
+        }
+        catch(SQLException exc){
+            System.err.println("Hatâ oluştu (produceNewTableForField) : " + exc.toString());
+        }
+        return false;
+    }
+    private boolean confirmTableInDB(String tableName){// Büyük küçük harf hassas değil
+        try{
+            String sql = HelperForHelperForDBType.getHelper(this.connectivity.getDBType()).getSentenceForShowTables();
+            ResultSet rs = connectivity.getConnext().createStatement().executeQuery(sql);
+            if(rs == null)
+                return false;
+            while(rs.next()){
+                if(rs.getString(1).equalsIgnoreCase(tableName))
+                    return true;
+            }
+        }
+        catch(SQLException exc){
+            System.err.println("Hatâ (confirmTableInDB)");
+        }
+        return false;
+    }
+    private Class loadAndGetClass(String typeName){
+        Class cls = null;
+        switch(typeName){
+            case "int" :{
+                cls = int.class;
+                break;
+            }
+            case "double" :{
+                cls = double.class;
+                break;
+            }
+            case "float" :{
+                cls = float.class;
+                break;
+            }
+            case "char" :{
+                cls = char.class;
+                break;
+            }
+            case "byte" :{
+                cls = byte.class;
+                break;
+            }
+            case "boolean" :{
+                cls = boolean.class;
+                break;
+            }
+            case "short" :{
+                cls = short.class;
+                break;
+            }
+            case "long" :{
+                cls = short.class;
+                break;
+            }
+        }
+        if(cls != null)
+            return cls;
+        try{
+            cls = ClassLoader.getSystemClassLoader().loadClass(typeName);
+        }
+        catch(ClassNotFoundException exc){
+            System.err.println("Yüklenmek istenen sınıf bulunamadı : " + exc.toString());
+        }
+        return cls;
     }
 
 //ERİŞİM YÖNTEMLERİ:
@@ -705,22 +1016,6 @@ public class IkizIdare{
     }
     public Cvity getConnectivity(){
         return connectivity;
-    }
-    public HashMap<String, Boolean> getAttributesPolicy(){//Varsayılan alan alma formülü = hepsini al
-        if(attributesPolicy == null){
-            attributesPolicy = new HashMap<>();
-            attributesPolicy.put("public", true);
-            attributesPolicy.put("private", true);
-            attributesPolicy.put("default", false);
-            attributesPolicy.put("protected", false);
-        }
-        return attributesPolicy;
-    }
-    public HashMap<String, UpdateMode> getUpdateModeOfTables(){
-        if(updateModeOfTables == null){
-            updateModeOfTables = new HashMap<String, UpdateMode>();
-        }
-        return updateModeOfTables;
     }
     //GİZLİ ERİŞİM YÖNTEMLERİ:
     private HashMap<String, List> getBufferTables(){
