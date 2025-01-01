@@ -38,5 +38,8 @@ public class listClass {
     public void setName(String name) {
         this.name = name;
     }
-    
+    @Override
+    public String toString(){
+        return this.id + this.name + this.liste;
+    }
 }

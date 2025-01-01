@@ -1,6 +1,6 @@
 package ikiz;
 
-public class HelperForMSSQL implements HelperForDBType{
+public class HelperForMsSQL implements HelperForDBType{
 
 // İŞLEM YÖNTEMLERİ:
     @Override

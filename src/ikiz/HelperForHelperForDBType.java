@@ -2,7 +2,7 @@ package ikiz;
 
 public class HelperForHelperForDBType{
     private final static HelperForMySQL helperMySQL = new HelperForMySQL();
-    private final static HelperForMSSQL helperMsSQL = new HelperForMSSQL();
+    private final static HelperForMsSQL helperMsSQL = new HelperForMsSQL();
     private final static HelperForPostgreSQL helperPostgreSQL = new HelperForPostgreSQL();
 
     private HelperForHelperForDBType(){}

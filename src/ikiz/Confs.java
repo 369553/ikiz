@@ -11,13 +11,13 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     protected boolean bufferMode = false;//Her veri çekme isteğinde veritabanından veri çekilmemesi için verilerin İkiz'de saklandığı bir çalışma şekli
     //private boolean workWithSpecialBuilder = false;//Yalnızca ikizIdare sınıfından bir nesnenin 'specialCode' kullanarak erişebileceği bir inşâcı ile çalış
     //private String specialCode;//Özel inşâcı ile çalışıldığı durumda özel inşâcının ikizIdare için ilgili sınıftan bir değişken üretmesi için gereken kod
-    private METHOD_FOR_LIST_AND_MAP_FIELDS methodForListAndMapFields = METHOD_FOR_LIST_AND_MAP_FIELDS.TAKE_AS_NEW_TABLE;
+    private POLICY_FOR_LIST_MAP_ARRAY methodForListAndMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;
     
 //.;.
-    enum METHOD_FOR_LIST_AND_MAP_FIELDS{// Bir sınıftaki List ve Map türü verilerin nasıl saklanacağıyla ilgili yapılandırma
-        TAKE_AS_COLUMN,// List türündeki veriyi ',' gibi bir ayraçla birleştirip, sütun içerisinde metîn olarak sakla
-        TAKE_AS_NEW_TABLE,// List türündeki veriyi yeni tablo olarak sakla
-        DONT_TAKE// List ve Map türündeki veriyi veritabanına aktarma
+    enum POLICY_FOR_LIST_MAP_ARRAY{// Bir sınıftaki liste, harita ve dizi türü verilerin nasıl saklanacağıyla ilgili yapılandırma
+        TAKE_AS_JSON,// İlgili veri JSON verisine dönüştürülüp, veritabanında ilgili sütunda metîn olarak saklanır
+        //TAKE_LIKE_JSON,// İlgili veri virgül ile ayrılmış şekilde metne dönüştürülüp, veritabanında ilgili sütunda saklanır.
+        DONT_TAKE// İlgili veriler sistem tarafından yoksayılır, veritabanına kaydedilmez
     }
 
     public Confs(){
@@ -39,7 +39,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         confs.workWithNonParameterConstructor = true;
         confs.bufferMode = false;
         confs.getAttributesPolicy();
-        confs.methodForListAndMapFields = METHOD_FOR_LIST_AND_MAP_FIELDS.TAKE_AS_NEW_TABLE;
+        confs.methodForListAndMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;
         return confs;
     }
 
@@ -94,7 +94,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     public void setAlwaysContinueAttribute(boolean value){
         this.alwaysContinue = value;
     }
-    public void setMethodForListAndMapFields(METHOD_FOR_LIST_AND_MAP_FIELDS methodForListAndMapFields){
+    public void setMethodForListAndMapFields(POLICY_FOR_LIST_MAP_ARRAY methodForListAndMapFields){
         this.methodForListAndMapFields = methodForListAndMapFields;
     }
     
@@ -129,7 +129,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         }
         return updateModeOfTables;
     }
-    public METHOD_FOR_LIST_AND_MAP_FIELDS getMethodForListAndMapFields(){
+    public POLICY_FOR_LIST_MAP_ARRAY getMethodForListAndMapFields(){
         return methodForListAndMapFields;
     }
     

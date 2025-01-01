@@ -35,5 +35,8 @@ public class ArrayClass {
     public void setName(String name) {
         this.name = name;
     }
-    
+    @Override
+    public String toString(){
+        return this.id + "\t" + String.valueOf((Object) this.sayilar) + "\t" + this.name;
+    }
 }

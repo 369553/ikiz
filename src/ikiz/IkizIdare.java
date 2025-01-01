@@ -1,7 +1,9 @@
 package ikiz;
 
+import Base.JSONReader;
 import ikiz.Services.DTService;
 import ikiz.Services.Helper;
+import Base.JSONWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -17,6 +19,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class IkizIdare{
     private static IkizIdare ikiz;
@@ -74,7 +78,6 @@ public class IkizIdare{
         }
         return null;
     }
-
     public boolean integrateTableToIkiz(String tableName){
         if(tableName == null)
             return false;
@@ -108,7 +111,7 @@ public class IkizIdare{
         boolean result = false;
         for(int sayac = 0; sayac < fields.length; sayac++){// Alan isimleri ve veri tiplerini belirleme;
             if(takeThisField(fields[sayac].getModifiers())){
-                Class typeOfField = fields[sayac].getType();
+                Class typeOfField = fields[sayac].getType();// Alanın veri tipi alınır
 //                System.out.println("Verinin tipi : " + typeOfField);
                 // Kontrol - 1 : Tipi nedir?
                 if(isBasicType(typeOfField)){// Temel veri tipiyse ilgili alan için verileri al
@@ -117,11 +120,11 @@ public class IkizIdare{
                     takedAttributesNumber++;
                 }
                 else{// Bu alan temel veri tipi değilse;
-                    HashMap<String, Boolean> results = isListOrMapOrArrayType(typeOfField);
+                    HashMap<String, Boolean> results = isListOrMapOrArray(typeOfField);
                     boolean isArray = results.get("isArray");
                     boolean isMap = results.get("isMap");
-                    if(results.get("result")){// Eğer veri tipi List veyâ Map veyâ dizi ise;
-                        if(this.confs.getMethodForListAndMapFields() != Confs.METHOD_FOR_LIST_AND_MAP_FIELDS.DONT_TAKE){// bu alanlar 'alınmayacak' olarak işâretlenmemişse;
+                    if(results.get("result")){// Eğer veri tipi List veyâ Map veyâ Array (dizi) ise;
+                        if(this.confs.getMethodForListAndMapFields() != Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE){// bu alanlar 'alınmayacak' olarak işâretlenmemişse;
                             String[] genericTypes = new String[2];
                             if(isArray){// Dizi ise;
                                 String typeName = typeOfField.getSimpleName();
@@ -131,7 +134,6 @@ public class IkizIdare{
                                     System.err.println("Dizinin veri tipi temel veri tiplerinden olmadığında dizi alınamıyor");
                                     continue;// Bu alanı alma
                                 }
-                                //.;.
                             }
                             else{// Harita veyâ liste ise;
                                 Class generalType = fields[sayac].getType();
@@ -167,17 +169,7 @@ public class IkizIdare{
                                 }
                             }
                             columnNames[takedAttributesNumber] = fields[sayac].getName();
-                            columnTypes[takedAttributesNumber] = String.class;// Bu alanda, ilgili tablo ismi saklanacağından alanın tipi String olmalı veyâ değerler ',' ile ayrılmış şekilde saklanacaksa yine String olmalı
-                            if(this.confs.getMethodForListAndMapFields() == Confs.METHOD_FOR_LIST_AND_MAP_FIELDS.TAKE_AS_NEW_TABLE){// İlgili liste veyâ dizi veyâ haritalar yeni tablo olarak kaydedilecekse;
-                                String fieldTableName = "ikiz_" + tableName + "_" + columnNames[takedAttributesNumber];
-                                genericTypes[0] = getTypeNameForDB(genericTypes[0]);
-                                if(isMap)
-                                    genericTypes[1] = getTypeNameForDB(genericTypes[1]);
-                                produceNewTableForField(fieldTableName, isArray, isMap, genericTypes);
-                            }
-                            else{// İlgili alanlar yalnızca yeni sütun olarak kayıt edilecekse
-                                //.;.
-                            }
+                            columnTypes[takedAttributesNumber] = String.class;// Bu alanda, ilgili veriler metîn ile saklanacağından sütun veri tipi String olmalı
                             takedAttributesNumber++;
                         }
                         else{// Bu alan liste veyâ dizi veyâ harita; fakat bu alanlar 'alınmayacak' olarak işâretlenmiş
@@ -245,13 +237,20 @@ public class IkizIdare{
         Field[] fields = entity.getClass().getDeclaredFields();
         int takedAttributes = 0;
         ArrayList<Field> liTakedFields = new ArrayList<>();
+        HashMap<String, Boolean> specialFields = new HashMap<String, Boolean>();// Özel alanlar (dizi, liste, harita) işâretlenmeli
+        HashMap<String, HashMap<String, Boolean>> specialises = new HashMap<String, HashMap<String, Boolean>>();
         for(int sayac = 0; sayac < fields.length; sayac++){
-            if(takeThisField(fields[sayac].getModifiers())){
-                liTakedFields.add(fields[sayac]);
-                takedAttributes++;
+            if(takeThisField(fields[sayac].getModifiers())){// attributesPolicy'e göre ilgili alanın alınmasının uygunluğunu değerlendirir
+                HashMap<String, Boolean> resultsOfAnalyzing = takeThisFieldForDataType(fields[sayac]);// İlgili alanın alınıp, alınmayacağı veri tipine göre değerlendiriliyor
+                if(resultsOfAnalyzing.get("finalResult")){// İlgili alanın tipine ve ilgili listType polikasına göre alınıp, alınmayacağını tespit et
+                    liTakedFields.add(fields[sayac]);
+                    specialFields.put(fields[sayac].getName(), Boolean.TRUE);// Özel alan olarak işâretle
+                    specialises.put(fields[sayac].getName(), resultsOfAnalyzing);
+                    takedAttributes++;
+                }
             }
         }
-        Field[] taked = new Field[liTakedFields.size()];
+        Field[] taked = new Field[liTakedFields.size()];// Listeyi diziye çevirmek gerekli miydi?
         liTakedFields.toArray(taked);
         for(int sayac = 0; sayac < taked.length; sayac++){
             query.append(taked[sayac].getName());
@@ -275,13 +274,14 @@ public class IkizIdare{
             System.err.println("Hatâ, sorgu cümlesi hâzırlama yapısı üretilemedi");
             return false;
         }
-        Object value;
+        Object value;// Nesnenin nesne olarak alınmış hâli (bu durumda liste, dizi, harita da olabilir)
         int writedAttribute = 0;
         System.out.println("hâzırlanan sorgu cümlesi : " + query.toString());
         for(int sayac = 0; sayac < taked.length; sayac++){
-            value = null;
+            Object pureValue = null;
+            value = null;// Special özelliğe göre alım yap!
             try{
-                value = taked[sayac].get(entity);
+                pureValue = taked[sayac].get(entity);
             }
             catch(IllegalArgumentException ex){
                 System.out.println("Hatâ, geçersiz değer : " + ex.getMessage());
@@ -290,7 +290,7 @@ public class IkizIdare{
                 try{
                     Method getter = entity.getClass().getMethod("get" + convertFirstLetterToUpper(taked[sayac].getName()), null);
                     try{
-                        value = getter.invoke(entity, null);
+                        pureValue = getter.invoke(entity, null);
                     }
                     catch(IllegalAccessException ex1){
                         System.out.println("Hatâ, yetkisiz erişim...");
@@ -319,8 +319,12 @@ public class IkizIdare{
                 }
 //                System.err.println("hatâ, yetkisiz erişim : " + ex.getMessage());
             }
+            if(specialFields.get(taked[sayac].getName())){// Kabûl edilen özel bir veri tipi (liste, harita, dizi) ise
+                value = getJSONStringFromObject(pureValue);// İlgili nesne verisini JSON metni olarak al
+            }
+            else// Temel veri tipi ise;
+                value = pureValue;
             try{
-//                    System.out.println("alınan değer : " + value.toString());
                 preparing.setObject(sayac + 1, value);
             }
             catch(SQLException ex){
@@ -369,7 +373,7 @@ public class IkizIdare{
         String tableName = target.getSimpleName();
         if(target == null)
             return null;
-        if(this.confs.bufferMode){
+        if(this.confs.bufferMode){// Veri tazeleme modu, burada farklılaştırılabilir. Misal, veri istendiğinde belirli bir süredir tazeleme olmadıysa veriyi çek, diğer durumda önbellekteki veriyi getir gibi
             List data = getDataFromBuffer(tableName);
             if(data != null)
                 return data;
@@ -382,64 +386,39 @@ public class IkizIdare{
         for(Field f : fields){
             mapFields.put(f.getName(), f);
         }
-        boolean go = false;
-        try{
-            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
-            result = st.executeQuery("SHOW TABLES");
-//            st.close();
-        }
-        catch(SQLException ex){
-            System.out.println("hatâ : " + ex.getMessage());
+        boolean keepGo = confirmTableInDB(tableName);// Önce tablonun olup, olmadığına bakılıyor; bu, gereksiz bir işlem sayılabilir. Performansı arttırmak için sorgudan dönen hatâ sonucunu ele al
+        if(!keepGo){
+            System.err.println("İlgili tablo veritabanında olmadığından işlem sonlandırıldı!");
             return null;
         }
-        if(st == null)
-            return null;
-        if(result == null)
-            return null;
-        try{
-            while(result.next()){
-                String name = result.getString(1);
-//                System.out.println("tablo ismi : " + name);
-                if(name != null)
-                    if(name.equalsIgnoreCase(tableName)){
-                        go = true;
-                        break;
-                    }
-            }
-        }
-        catch(SQLException ex){
-            System.out.println("hatâ : " + ex.getMessage());
-            return null;
-        }
-        if(!go)
-            return null;
 //        System.out.println("Aşama 2...");
         ArrayList<T> liData;
         result = null;
-        ArrayList<HashMap<String, Object>> liDataBeforeInstance = null;
+        ArrayList<HashMap<String, Object>> liDataOfObjectsBeforeInstantiation = null;
         try{
             st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
             result = st.executeQuery("SELECT * FROM " + tableName);
             liData = new ArrayList<T>();
-            if(result == null){//Tabloda hiç satır yoksa
+            if(!result.next()){//Tabloda hiç satır yoksa;
                 return liData;
             }
             int columnCount = result.getMetaData().getColumnCount();
-            liDataBeforeInstance = new ArrayList<>();
-            while(result.next()){
-                HashMap<String, Object> map = new HashMap<>();
+            liDataOfObjectsBeforeInstantiation = new ArrayList<>();
+            do{// Daha evvel result.next() çalıştırıldığından ilk satır için result.next() çalıştırılmamalı; bunun için do-while kullanılıyor
+                HashMap<String, Object> map = new HashMap<String, Object>();
                 for(int sayac = 1; sayac < columnCount + 1; sayac++){
                     map.put(result.getMetaData().getColumnLabel(sayac), result.getObject(sayac));
                 }
-                liDataBeforeInstance.add(map);
+                liDataOfObjectsBeforeInstantiation.add(map);
             }
+            while(result.next());
         }
         catch(SQLException ex){
             System.out.println("hatâ : " + ex.getMessage());
             return null;
         }
         //ELDEKİLER:
-            //liDataBeforeInstance : Her bir eleman için özellik, değer çifti içeren harita listesi, tipi : ArrayList<HashMap<String, Object>>
+            //liDataOfObjectsBeforeInstantation : Her bir eleman için özellik, değer çifti içeren harita listesi, tipi : ArrayList<HashMap<String, Object>>
             //Yapılması gereken 1 : Öncelikle parametresiz bir yapıcı fonksiyon ara
             //Yapılması gereken 2 : Eğer parametresiz yapıcı fonksiyon yoksa, ikizIdare parametresiyle çalışan yapıcı fonksiyon aranabilir,
                 //bu özellik sonra eklenecek, bi iznillâh
@@ -459,7 +438,7 @@ public class IkizIdare{
         }
         //Parametresiz yapıcı fonksiyonla elemanları üret:
         if(noParamCs != null){
-            for(HashMap<String, Object> mapOfAttributes : liDataBeforeInstance){
+            for(HashMap<String, Object> mapOfAttributesOfRow : liDataOfObjectsBeforeInstantiation){
                 Object instance;
                 try{
                     instance = noParamCs.newInstance(null);
@@ -480,7 +459,7 @@ public class IkizIdare{
                     System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
                     return null;
                 }
-                liData.add((T) assignAttributes(instance, target, mapOfAttributes, mapFields));
+                liData.add((T) assignAttributes(instance, target, mapOfAttributesOfRow, mapFields));// Verileri ilgili alanlara zerk et
             }
 //            System.out.println("Üretilen değişkenin sınıf ismi : " + data[0].getClass().getName());
 //            System.out.println("Veri tipi dönüşümü yapılmış değişkenin sınıf ismi : " + target.cast(data[0]).getClass().getName());
@@ -525,7 +504,7 @@ public class IkizIdare{
                     if(data != null)
                         System.out.println("data.getClass().getName() : " + data.getClass().getName());
                 }
-                System.out.println("Alan sayısı : " + sayac);
+                System.out.println("Tablodaki sütun sayısı : " + sayac);
             }
         }
         catch(SQLException ex){
@@ -696,12 +675,25 @@ public class IkizIdare{
             Field f = mapFields.get(colName);
             if(f == null)//Ola ki ilgili özellik sınıfta yoksa, atama yapmaya çalışma
                 continue;
+            Object data = null;
+            // Öncelikle dizi, liste ve harita alanlarını tespit etmeliyiz:
+            HashMap<String, Boolean> results = isListOrMapOrArray(f.getType());
+            if(results.get("result")){// İlgili alan dizi veyâ harita veyâ liste imiş
+                Confs.POLICY_FOR_LIST_MAP_ARRAY policy = confs.getMethodForListAndMapFields();
+                if(policy.equals(Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE)){
+                    continue;// Liste ve harita ve dizi alanları sistemden hâriç tutulmak isteniyorsa, bu alanı atla
+                }
+                data = produceObjectFromStringForListMapArray((String) mapAttributes.get(colName), f, policy);
+            }
+            else{// İlgili alan liste veyâ harita veyâ dizi değilse değeri doğrudan tablodan al
+                data = mapAttributes.get(colName);
+            }
             if(f.getModifiers() != 1){
                 try{
                     Method setter = cl.getDeclaredMethod("set" + convertFirstLetterToUpper(f.getName()), new Class[]{f.getType()});
                     try{
-                        if(mapAttributes.get(colName) != null)
-                            setter.invoke(instance, mapAttributes.get(colName));
+                        if((data == null && !f.getType().isPrimitive()) || data != null)// Veri null değilse veyâ hedef alanın veri tipi temel veri tipi değilse atamayı yap; //Not : Temel veri tipleri Object'ten kalıtım almadığı için onlara null değeri atanamıyor; amacımız şu : İlgili alan temel veri tipinde değilse 'null' değerini atamak (Başlangıçlandırma (instantiation) yapılmadığından hatâ alınmaması için. Java'da bu gerekli görünmüyor; ama yine de tedbirimizi alalım
+                            setter.invoke(instance, data);
                     }
                     catch(IllegalAccessException ex){
                         System.err.println("hatâ : " + ex.getMessage());
@@ -722,7 +714,8 @@ public class IkizIdare{
             }
             else{
                 try{
-                    f.set(instance, mapAttributes.get(colName));
+                    if((data == null && !f.getType().isPrimitive()) || data != null)// Bu şartın konulmasının îzahı 'setter' çalıştırılması satırında var
+                        f.set(instance, data);
                 }
                 catch(IllegalArgumentException ex){
                     System.err.println("hatâ : " + ex.getMessage());
@@ -767,8 +760,11 @@ public class IkizIdare{
         return true;
     }
     private boolean isBasicType(Class type){
+        return isBasicType(type.getName());
+    }
+    private boolean isBasicType(String nameOfClass){
         boolean isSuccess = false;
-        switch(type.getName()){
+        switch(nameOfClass){
             case "int" : {
                 isSuccess = true;
                 break;
@@ -813,10 +809,18 @@ public class IkizIdare{
                 isSuccess = true;
                 break;
             }
+            /*case "byte" : {
+                isSuccess = true;
+                break;
+            }
+            case "java.lang.Byte" : {
+                isSuccess = true;
+                break;
+            }*/
         }
         return isSuccess;
     }
-    private HashMap<String, Boolean> isListOrMapOrArrayType(Class cls){
+    private HashMap<String, Boolean> isListOrMapOrArray(Class cls){
         HashMap<String, Boolean> res = new HashMap<String, Boolean>();
         res.put("result", Boolean.FALSE);
         res.put("isArray", Boolean.FALSE);
@@ -845,7 +849,49 @@ public class IkizIdare{
         }
         return res;
     }
-    private String getGenericTypeNameOfField(Field field){// Verilen 'objClass' sınıfının verilen 'field' alanının generic tipini belirlemek için..
+    private Object produceObjectFromStringForListMapArray(String data, Field field, Confs.POLICY_FOR_LIST_MAP_ARRAY policy){
+        if(policy == Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE)
+            return null;
+        if(policy == Confs.POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON){
+            HashMap<String, Boolean> res = isListOrMapOrArray(field.getType());
+            if(!res.get("result")){
+                System.err.println("Verilen alan liste & harita & dizi değil (produceObjectFromStringForListMapArray): " + field.getName());
+                return null;
+            }
+            Object value = null;
+            if(res.get("isList") || res.get("isArray")){// İlgili alan dizi ise;
+                ArrayList<Object> list = JSONReader.getService().readJSONArray(data);
+                if(res.get("isArray")){
+                    value = ReflectorForRunTime.getService().produceNewArrayInjectDataReturnAsObject(field.getType(), list.size(), list);
+                    System.out.println("value.type : " + value.getClass().getName());
+                }
+                else{
+                    value = ReflectorForRunTime.getService().produceNewInstance(field.getType());
+                    try{
+                        ((List)value).addAll(list);
+                    }
+                    catch(UnsupportedOperationException | ClassCastException | NullPointerException | IllegalArgumentException exc){
+                        System.err.println("JSON metni verisi ilgili List değişkenine aktarılamadı : " + exc.toString());
+                        return null;
+                    }
+                }
+            }
+            else if(res.get("isMap")){
+                value = ReflectorForRunTime.getService().produceNewInstance(field.getType());
+                Map map = JSONReader.getService().readJSONObj(data);
+                try{
+                    ((Map)value).putAll(map);
+                }
+                catch(UnsupportedOperationException | ClassCastException | NullPointerException | IllegalArgumentException exc){
+                    System.err.println("JSON metni verisi ilgili Map değişkenine aktarılamadı : " + exc.toString());
+                    return null;
+                }
+            }
+            return value;
+        }
+        return null;
+    }
+    private String getGenericTypeNameOfField(Field field){// Verilen 'field' alanının generic tipini belirlemek için.. (tek generic tip barındırıyorsa)
         try{
             String genTypeName = field.getGenericType().getTypeName();
             String absoluteName = genTypeName.substring(genTypeName.indexOf('<') + 1, genTypeName.indexOf('>'));
@@ -857,7 +903,7 @@ public class IkizIdare{
         }
         return null;
     }
-    private String[] getGenericTypeNamesOfField(Field field){
+    private String[] getGenericTypeNamesOfField(Field field){// İki generic tip barındıran veri tipleri için;
         String[] values = new String[2];
         String genType = field.getGenericType().getTypeName();
         String[] splitted = genType.substring(genType.indexOf('<') + 1, genType.length() - 1).split(",");
@@ -871,81 +917,7 @@ public class IkizIdare{
         if(genericTypeName.isEmpty())
             return false;
         boolean take = false;
-        switch(genericTypeName){
-            case "int" :{
-                take = true;
-                break;
-            }
-            case "double" :{
-                take = true;
-                break;
-            }
-            case "float" :{
-                take = true;
-                break;
-            }
-            case "boolean" :{
-                take = true;
-                break;
-            }
-            case "byte" :{
-                take = true;
-                break;
-            }case "char" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Integer" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Double" :{
-                take = true;
-                break;
-            }
-            case "java.lang.String" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Float" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Boolean" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Character" :{
-                take = true;
-                break;
-            }
-            case "java.lang.Byte" :{
-                take = true;
-                break;
-            }
-        }
-        return take;
-    }
-    private boolean produceNewTableForField(String tableName, boolean isArray, boolean isMap, String[] dataTypesForDB){
-        StringBuilder query = new StringBuilder();
-        try{
-            query.append("CREATE TABLE ").append(tableName).append(" (");
-            if(isMap){// Eğer ilgili alan bir harita ise, tabloda 'key' ve 'value' alanlarını oluştur; 'key' alanını birincil anahtar yap.
-                query.append(start + "key" + end + " " + dataTypesForDB[0] + ", value ").append(dataTypesForDB[1]).
-                        append(", PRIMARY KEY(" + start + "key" + end + ")");
-            }
-            else{// Liste veyâ dizi içerisinde aynı değerden olabileceğinden bu alan birincil anahtar yapılamaz
-                query.append("value ").append(dataTypesForDB[0]);
-            }
-            query.append(");");
-            System.out.println("Alan için yeni tablo : " + query.toString());
-            this.connectivity.getConnext().createStatement().execute(query.toString());
-            return true;
-        }
-        catch(SQLException exc){
-            System.err.println("Hatâ oluştu (produceNewTableForField) : " + exc.toString());
-        }
-        return false;
+        return isBasicType(genericTypeName);
     }
     private boolean confirmTableInDB(String tableName){// Büyük küçük harf hassas değil
         try{
@@ -1008,6 +980,58 @@ public class IkizIdare{
             System.err.println("Yüklenmek istenen sınıf bulunamadı : " + exc.toString());
         }
         return cls;
+    }
+    private HashMap<String, Boolean> takeThisFieldForDataType(Field field){// Bir alanın alınıp, alınmayacağını veri tipine cihetinden değerlendir
+        Class type = field.getType();
+        // finalResult bu yöntemin sonucunu bildiriyor
+        HashMap<String, Boolean> results = new HashMap<String, Boolean>();
+        results.put("finalResult", Boolean.FALSE);
+        results.put("isMap", Boolean.FALSE);
+        results.put("isList", Boolean.FALSE);
+        results.put("isArray", Boolean.FALSE);
+        if(isBasicType(type)){// Temel veri tiplerini kabûl et
+            results.put("finalResult", Boolean.TRUE);
+        }
+        else{
+            results = isListOrMapOrArray(type);
+            if(results.get("result")){// Liste - harita - dizi veri tipleri için generic veri tipini kontrol et
+                if(type.isArray()){// İlgili alan dizi ise;
+                    String genTypeStr = field.getGenericType().getTypeName();
+                    genTypeStr = genTypeStr.substring(0, genTypeStr.length() - 2);
+                    results.put("finalResult", isBasicType(genTypeStr));
+                }
+                else if(results.get("isList")){
+                    results.put("finalResult", isBasicType(getGenericTypeNameOfField(field)));
+                }
+                else if(results.get("isMap")){
+                    String[] genTypes = getGenericTypeNamesOfField(field);
+                    if(genTypes != null){
+                        boolean confirmed = true;
+                        for(int sayac = 0; sayac < genTypes.length; sayac++){
+                            if(!canTakeableThisGenericTypeOfField(genTypes[sayac]))
+                                confirmed = false;
+                        }
+                        if(confirmed)
+                            results.put("finalResult", Boolean.TRUE);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+    public/*private yap*/ String getJSONStringFromObject(Object obj){// Verilen nesne için JSON String üret; JSON'dan bir farkı var: anahtarlar String olmak zorunda değil
+        // BURADA KALIDI
+        if(obj == null)
+            return "";
+        Class dType = obj.getClass();
+        if(dType == String.class)// Veri tipi metîn ise;
+            return "\"" + String.valueOf(obj) + "\"";
+        Object[] asArray = null;
+        JSONWriter jsonWrt = new JSONWriter();
+        String result = null;
+        result = jsonWrt.produceText(null, obj);// dizi veyâ harita veyâ liste için JSON metni üret
+        System.out.println("Üretilen metîn:\n" + result);
+        return result;
     }
 
 //ERİŞİM YÖNTEMLERİ:

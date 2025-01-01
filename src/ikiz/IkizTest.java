@@ -6,7 +6,10 @@ import base.OtherArrayClass;
 import base.listClass;
 import base.testSinifi;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 
 public class IkizTest{
     private static IkizIdare idare;
@@ -123,9 +126,83 @@ public class IkizTest{
             data.forEach((element) -> {System.out.println("element.name : " + element.name);});
         }
     }
+    public void fetchTableWhichIsnotInDB(){
+        String sql = "SELECT * FROM olmayanTablo";
+        try{
+            getIdare().getConnectivity().getConnext().createStatement().executeQuery(sql);
+        }
+        catch(SQLException exc){
+            System.err.println("Hatâ (fetchTableWhichIsnotInDB) : " + exc.toString());
+            System.err.println("Hatâ kodu : " + exc.getErrorCode());
+        }
+    }
     public void showTablesFromInterface(){
         List<String> listOfTables = IkizIdare.getTableNames(getIdare().getConnectivity());
         listOfTables.forEach(System.out::println);
+    }
+    public void getDataFromEmptyTable(){// İki satır için de denemek için kapatılan yeri aç
+        createEmptyTable("emptyTable");
+        String sql = "SELECT * FROM emptyTable"; 
+        try{
+            getIdare().getConnectivity().getConnext().createStatement().execute("INSERT INTO emptyTable (id) VALUES (1);");
+            ResultSet rs = getIdare().getConnectivity().getConnext().createStatement().executeQuery(sql);
+            if(rs == null)
+                System.err.println("Gelen resultSet nesnesi = null");
+            else
+                System.out.println("Gelen resultSet nesnesi != null");
+            if(rs.next())
+                System.out.println("resultSet.next() = true");
+            else
+                System.err.println("resulSet.next() = false");
+            
+            
+            if(rs.next())
+                System.out.println("İkinci resultSet.next() komutu = true");
+            else
+                System.err.println("İkinci resulSet.next() komutu = false");
+        }
+        catch(SQLException exc){
+            System.err.println("Hatâ (getDataFromEmptyTable) : " + exc.toString());
+            System.err.println("Hatâ kodu : " + exc.getErrorCode());
+        }
+    }
+    public List getDataFromArrayClass(){
+        List<ArrayClass> list = getIdare().getData(ArrayClass.class);
+        if(list != null)
+            System.out.println("Veri çekme işlemi başarılı : " + list.size());
+        else
+            System.err.println("Veri çekme işlemi başarısız!");
+        return list;
+    }
+    public List getDataFromListClass(){
+        List<listClass> list = getIdare().getData(listClass.class);
+        if(list != null)
+            System.out.println("Veri çekme işlemi başarılı : " + list.size());
+        else
+            System.err.println("Veri çekme işlemi başarısız!");
+        return list;
+    }
+    public void createEmptyTable(String tableName){
+        String order = "CREATE TABLE " + tableName + "(id int);";
+        String order2 = "TRUNCATE TABLE " + tableName + ";";
+        try{
+            getIdare().getConnectivity().getConnext().createStatement().execute(order);
+            getIdare().getConnectivity().getConnext().createStatement().execute(order2);
+        }
+        catch(SQLException exc){
+            System.err.println("Hatâ (createEmptyTable) : " + exc.toString());
+            System.err.println("Hatâ kodu : " + exc.getErrorCode());
+        }
+    }
+    public void testProduceJSONTextFromMap(Map<Object, Object> map){
+        String text = idare.getJSONStringFromObject(map);
+        if(text != null){
+            System.err.println("text != null");
+            if(!text.isEmpty()){
+                System.err.println("!text.isEmpty");
+                System.out.println("text:\n\n" + text);
+            }
+        }
     }
 
 // ERİŞİM YÖNTEMLERİ:
