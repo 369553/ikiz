@@ -1,23 +1,29 @@
 package ikiz;
 
 import java.util.HashMap;
+import ReflectorRuntime.Reflector.CODING_STYLE;
 
 public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     private HashMap<String, Boolean> attributesPolicy;// Alan alma usûlü : <erişimBelirteci, alınsınMı?>
-    protected boolean takeDateAttributeAsDateTime = true;// 'Date' tipindeki alanları veritabanına aktarırken 'DATETIME' tipinde aktar
+    protected boolean takeDateAttributeAsDateTime = true;// 'java.util.Date' tipindeki alanları veritabanına aktarırken 'DATETIME' tipinde aktar
     protected boolean alwaysContinue = true;//Eğer kullanıcın alınmasını istediği değer alınamadıysa, kalan değerlerle veritabanına yazmaya çalış
     protected boolean workWithNonParameterConstructor = true;//
-    private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.    
+    private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.
     protected boolean bufferMode = false;//Her veri çekme isteğinde veritabanından veri çekilmemesi için verilerin İkiz'de saklandığı bir çalışma şekli
     //private boolean workWithSpecialBuilder = false;//Yalnızca ikizIdare sınıfından bir nesnenin 'specialCode' kullanarak erişebileceği bir inşâcı ile çalış
     //private String specialCode;//Özel inşâcı ile çalışıldığı durumda özel inşâcının ikizIdare için ilgili sınıftan bir değişken üretmesi için gereken kod
-    private POLICY_FOR_LIST_MAP_ARRAY methodForListAndMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;
+    private POLICY_FOR_LIST_MAP_ARRAY policyForListArrayMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;// Liste - dizi ve harita alanlarının alım politikası
+    private POLICY_FOR_USER_DEFINED_CLASSES policyForListUserDefinedClasses = POLICY_FOR_USER_DEFINED_CLASSES.TAKE_AS_JSON;// Kullanıcı tanımlı alanların alım politikası
+    protected CODING_STYLE codingStyleForGetterSetter = CODING_STYLE.CAMEL_CASE;// 'getter' ve 'setter' yöntemlerinin isimlerini bulabilmek için gerekli kodlama biçimi
     
 //.;.
-    enum POLICY_FOR_LIST_MAP_ARRAY{// Bir sınıftaki liste, harita ve dizi türü verilerin nasıl saklanacağıyla ilgili yapılandırma
-        TAKE_AS_JSON,// İlgili veri JSON verisine dönüştürülüp, veritabanında ilgili sütunda metîn olarak saklanır
-        //TAKE_LIKE_JSON,// İlgili veri virgül ile ayrılmış şekilde metne dönüştürülüp, veritabanında ilgili sütunda saklanır.
+    public enum POLICY_FOR_LIST_MAP_ARRAY{// Bir sınıftaki liste, harita ve dizi türü verilerin nasıl saklanacağıyla ilgili yapılandırma
+        TAKE_AS_JSON,// İlgili veri veritabanında JSON biçiminde saklanır (destekleyen veritabanlarında çalışır)
         DONT_TAKE// İlgili veriler sistem tarafından yoksayılır, veritabanına kaydedilmez
+    }
+    public enum POLICY_FOR_USER_DEFINED_CLASSES{
+        TAKE_AS_JSON,
+        DONT_TAKE
     }
 
     public Confs(){
@@ -39,7 +45,8 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         confs.workWithNonParameterConstructor = true;
         confs.bufferMode = false;
         confs.getAttributesPolicy();
-        confs.methodForListAndMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;
+        confs.policyForListArrayMapFields = POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON;
+        confs.codingStyleForGetterSetter = CODING_STYLE.CAMEL_CASE;
         return confs;
     }
 
@@ -95,7 +102,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         this.alwaysContinue = value;
     }
     public void setMethodForListAndMapFields(POLICY_FOR_LIST_MAP_ARRAY methodForListAndMapFields){
-        this.methodForListAndMapFields = methodForListAndMapFields;
+        this.policyForListArrayMapFields = methodForListAndMapFields;
     }
     
     // ARKAPLAN İŞLEM YÖNTEMLERİ:
@@ -108,7 +115,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         if(attributesPolicy == null){
             attributesPolicy = new HashMap<>();
             attributesPolicy.put("public", true);
-            attributesPolicy.put("private", true);
+            attributesPolicy.put("private", false);
             attributesPolicy.put("default", true);
             attributesPolicy.put("protected", true);
         }
@@ -129,10 +136,12 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         }
         return updateModeOfTables;
     }
-    public POLICY_FOR_LIST_MAP_ARRAY getMethodForListAndMapFields(){
-        return methodForListAndMapFields;
+    public POLICY_FOR_LIST_MAP_ARRAY getPolicyForListArrayMapFields(){
+        return policyForListArrayMapFields;
     }
-    
+    public POLICY_FOR_USER_DEFINED_CLASSES getPolicyForUserDefinedClasses(){
+        return policyForListUserDefinedClasses;
+    }
 }
 /*
     private ArrayList<String> workingTables;

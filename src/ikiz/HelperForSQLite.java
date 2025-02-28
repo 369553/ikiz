@@ -2,31 +2,29 @@ package ikiz;
 
 import java.util.HashMap;
 
-public class HelperForMsSQL implements HelperForDBType{
+public class HelperForSQLite implements HelperForDBType{
     private HashMap<String, String> dataTypes = getMapOfDataTypeToDBDataType();
 
 //İŞLEM YÖNTEMLERİ:
     @Override
     public String getSentenceForShowTables(){
-        return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES;";
+        return "";
     }
     @Override
     public String getConnectionString(String hostName, int portNumber){
-        return "jdbc:sqlserver://" + hostName + ":" + portNumber + ";trustServerCertificate=true;";
+        return "jdbc:mysql://" + hostName + ":" + portNumber;
     }
     @Override
     public String getConnectionString(String hostName, int portNumber, String dbName){
-        return "jdbc:sqlserver://" + hostName + ":" + portNumber + ";trustServerCertificate=true;" + "databaseName=" + dbName + ";";
-        //String url = "jdbc:sqlserver://localhost:1434;user=SA;password=LINQSE.1177;trustServerCertificate=true;";
-//        jdbc:sqlserver://localhost:1434;trustServerCertificate=true;
+        return "jdbc:mysql://" + hostName + ":" + portNumber + "/" + dbName;
     }
     @Override
     public char getStartSymbolOfName(){
-        return '[';
+        return '`';
     }
     @Override
     public char getEndSymbolOfName(){
-        return ']';
+        return '`';
     }
     @Override
     public HashMap<String, String> getMapOfDataTypeToDBDataType(){
@@ -36,8 +34,8 @@ public class HelperForMsSQL implements HelperForDBType{
         values.put("java.lang.String", "");
         values.put("double", "");
         values.put("java.lang.Double", "");
-        values.put("float", "FLOAT(53)");
-        values.put("java.lang.Float", "FLOAT(53)");
+        values.put("float", "");
+        values.put("java.lang.Float", "");
         values.put("boolean", "");
         values.put("java.lang.Boolean", "");
         values.put("char", "");
@@ -54,7 +52,6 @@ public class HelperForMsSQL implements HelperForDBType{
         values.put("java.util.Date", "");// Târih - zamân
         values.put("java.sql.Date", "");// Târih - zamân
         values.put("java.lang.Number", "");
-        values.put("java.io.File", "MEDIUMBLOB");
         return values;
     }
     @Override

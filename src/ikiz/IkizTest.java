@@ -1,15 +1,15 @@
 package ikiz;
 
-import base.ArrayClass;
-import base.MapClass;
-import base.OtherArrayClass;
-import base.listClass;
-import base.testSinifi;
+import ikiz.testClasses.User;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.sql.Connection;
-import java.sql.ResultSet;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class IkizTest{
     private static IkizIdare idare;
@@ -19,25 +19,6 @@ public class IkizTest{
     }
 
 // İŞLEM (TEST) YÖNTEMLERİ:
-    public void createNewDB(){// Yeni veritabanı oluştur:
-        Connection connection = Cvity.connectBase("root", "LINQSE.1177", "localhost", 3306, Cvity.DBType.MYSQL);
-        
-        boolean isSuccessful = Cvity.createDB(connection, "ikizTest");
-        if(!isSuccessful){
-            System.err.println("Veritabanı oluşturulamadı!");
-            return;
-        }
-    }
-    public static Cvity connectToDBForMySQL(){
-        Connection conToDB = Cvity.connectDB("root", "LINQSE.1177", "localhost", 3306, "ikizTest", Cvity.DBType.MYSQL);
-        return new Cvity(conToDB, "root", "LINQSE.1177", "ikizTest");
-    }
-    public static Cvity connectToDBForMsSQL(){
-        Connection con = Cvity.connectDB("SA", "LINQSE.1177", "localhost", 1434, "vt1", Cvity.DBType.MSSQL);
-        if(con != null)
-            System.out.println("Veritabanı temeline bağlanıldı");
-        return new Cvity(con, "SA", "LINQSE.1177", "vt1");
-    }
     public static IkizTest startIkizTest(Cvity connection){
         if(!IkizIdare.startIkizIdare(connection)){
             System.err.println("Sistem başlatılamadı!");
@@ -46,162 +27,98 @@ public class IkizTest{
         idare = IkizIdare.getIkizIdare();
         return new IkizTest(idare);
     }
-    public void produceNewTable(){
-        boolean isSuccessful = getIdare().produceTable(testSinifi.class);
-        if(!isSuccessful){
-            System.err.println("Tablo oluşturulamadı!");
-            return;
-        }
+    public void scenario1(){
+        
     }
-    public void produceNewTableWithPrimaryKey(){
-        TableConfiguration confs = new TableConfiguration(testSinifi.class);
-        if(!confs.setPrimaryKey("numara"))
-            System.err.println("İlgili alan birincil anahtar olarak atanamadı!");
-        boolean isSuccessful = getIdare().produceTable(testSinifi.class, confs);
-        if(!isSuccessful){
-            System.err.println("Tablo oluşturulamadı!");
-            return;
-        }
+    public void scenario2(){// User sınıfı üzerinde...
+        TableConfiguration confs = new TableConfiguration(User.class);
+        // Kısıtlar:
+            confs.setPrimaryKey("id");
+            confs.addUniqueConstraint("name");
+            confs.addNotNullConstraint("name");
+        // Tablo oluştur:
+            idare.produceTable(User.class, confs);
+        // Verileri al:
+            List<User> data = User.produceData();
+        // Verileri ekle:
+            data.forEach((element) -> {idare.addRowToDB(element);});
+        // Verileri çek:
+            List<User> fetcht = idare.getData(User.class);
+        // Verileri yazdır:
+//            fetcht.forEach((row) -> {System.out.println("name : " + row.name + "\tid : " + row.id + "\tgender : " + row.gender + "\tnotes[0] : " + (row.notes == null ? "null" : row.notes[0]));});
+            fetcht.forEach(System.out::println);
+        // Müşahhas bir veri üzerinde değişiklik yap:
+            User choosed = fetcht.get(0);
+            choosed.name = "Târık";
+        // Değişikliği veritabanına gönder:
+            idare.updateRowInDB(choosed);
+        // Tazelenen veriyi çek ve yazdır:
+            User refreshed = idare.getDataById(User.class, choosed.id);
+            System.out.println("Tazelenen veri : " + refreshed);
+        // Bu veriyi sil:
+            int id = refreshed.id;
+            idare.deleteRowFromDB(refreshed);
+        // Veriyi sorgula (gelmemesi lazım)
+            Object value = idare.getDataById(User.class, id);
+            if(value == null)
+                System.out.println("Silinen veri çağrıldığında 'null' döndü; sistem doğru çalışıyor");
+            else
+                System.err.println("Silinen veri sistemden silinememiş");
+        // Başka bir veriyi sil:
+            int otherRowId = fetcht.get(2).id;
+            idare.deleteRowFromDB(fetcht.get(2));
+        // Tüm verileri çekip, yazdırarak son verinin silindiğini ilk kez, diğer verinin silindiğini ikinci kez teyyit et:
+            List<User> fetchtAgain = idare.getData(User.class);
+            fetchtAgain.forEach((row) -> {System.out.println(((row.id == otherRowId || row.id == id) ? "Hatâ VAR!!:" : "") + row);});
     }
-    public void produceTableWithListField(){
-        boolean isSuccess = getIdare().produceTable(listClass.class);
-        if(isSuccess)
-            System.out.println("Liste alanlı sınıf oluşturuldu");
-        else
-            System.err.println("Liste alanlı sınıf oluşturulamadı");
+    public void scenario3(){
+        
     }
-    public void produceTableWithArrayField(){
-        boolean isSuccess = getIdare().produceTable(ArrayClass.class);
-        if(isSuccess)
-            System.out.println("Dizi alanlı sınıf oluşturuldu");
-        else
-            System.err.println("Dizi alanlı sınıf oluşturulamadı");
+    public void scenario4(){
+        
     }
-    public void produceTableWithOtherArrayField(){
-        boolean isSuccess = getIdare().produceTable(OtherArrayClass.class);
-        if(isSuccess)
-            System.out.println("Diğer dizi alanlı sınıf oluşturuldu");
-        else
-            System.err.println("Diğer dizi alanlı sınıf oluşturulamadı");
-    }
-    public void produceTableWithMapField(){
-        boolean isSuccess = getIdare().produceTable(MapClass.class);
-        if(isSuccess)
-            System.out.println("Harita alanlı sınıf oluşturuldu");
-        else
-            System.err.println("Harita alanlı sınıf oluşturulamadı");
-    }
-    public void addDataForCheckListField(){
-        boolean isSuccess = getIdare().addRowToDB(new listClass());
-        if(isSuccess)
-            System.out.println("Liste alanlı tablo için ekleme başarılı");
-        else
-            System.err.println("Liste alanlı tablo için ekleme başarısız");
-    }
-    public void addDataForArrayField(){
-        boolean isSuccess = getIdare().addRowToDB(new ArrayClass());
-        if(isSuccess)
-            System.out.println("Dizi alanlı tablo için ekleme başarılı");
-        else
-            System.err.println("Dizi alanlı tablo için ekleme başarısız");
-    }
-    public void addDataForOtherArrayField(){
-        boolean isSuccess = getIdare().addRowToDB(new OtherArrayClass());
-        if(isSuccess)
-            System.out.println("Dizi alanlı diğer tablo için ekleme başarılı");
-        else
-            System.err.println("Dizi alanlı diğer tablo için ekleme başarısız");
-    }
-    public void addDataForMapField(){
-        boolean isSuccess = getIdare().addRowToDB(new MapClass());
-        if(isSuccess)
-            System.out.println("Harita alanlı tablo için ekleme başarılı");
-        else
-            System.err.println("Harita alanlı tablo için ekleme başarısız");
-    }
-    public void fetchData(){
-        List<testSinifi> data = getIdare().getData(testSinifi.class);
-        if(data != null){
-            System.out.println("data.size : " + data.size());
-            data.forEach((element) -> {System.out.println("element.name : " + element.name);});
-        }
-    }
-    public void fetchTableWhichIsnotInDB(){
-        String sql = "SELECT * FROM olmayanTablo";
-        try{
-            getIdare().getConnectivity().getConnext().createStatement().executeQuery(sql);
-        }
-        catch(SQLException exc){
-            System.err.println("Hatâ (fetchTableWhichIsnotInDB) : " + exc.toString());
-            System.err.println("Hatâ kodu : " + exc.getErrorCode());
-        }
+    public void scenario7(){
+        // Sistemi veritabanı verileri analiz ederek başlat:
+            idare.loadSystemConfsFromAnalyzingDB();
+        // Veritabanında vâr olan bir veriyi çek (User daha evvel oluşturulmuş olmalı):
+            List<User> data = idare.getData(User.class);
+        // Sonucu incele:
+            System.out.println("Veri çekimi sonucu : " + (data == null ? "başarısız" : data.size()));
+            data.forEach(System.out::println);
+        // Vârolan bir birincil anahtar ile müşahhas veri çekmeye çalış:
+            User u = idare.getDataById(User.class, data.get(0).id);
+            System.out.println("Müşahhas veri çekimi : " + (u == null ? "başarısız!" : u.name + "\tu.id : " + u.id));
     }
     public void showTablesFromInterface(){
         List<String> listOfTables = IkizIdare.getTableNames(getIdare().getConnectivity());
         listOfTables.forEach(System.out::println);
     }
-    public void getDataFromEmptyTable(){// İki satır için de denemek için kapatılan yeri aç
-        createEmptyTable("emptyTable");
-        String sql = "SELECT * FROM emptyTable"; 
+    public static Cvity connectToDBForMySQL(){
+        Connection conToDB = Cvity.connectDB("root", "LINQSE.1177", "localhost", 3306, "ikizTestNew", Cvity.DBType.MYSQL);
+        return new Cvity(conToDB, "root", "LINQSE.1177", "ikizTestNew");
+    }
+    public static Cvity connectToDBForMsSQL(){
+        Connection con = Cvity.connectDB("SA", "LINQSE.1177", "localhost", 1434, "vt1", Cvity.DBType.MSSQL);
+        if(con != null)
+            System.out.println("Veritabanı temeline bağlanıldı");
+        return new Cvity(con, "SA", "LINQSE.1177", "vt1");
+    }
+    public void testBLOB(){
         try{
-            getIdare().getConnectivity().getConnext().createStatement().execute("INSERT INTO emptyTable (id) VALUES (1);");
-            ResultSet rs = getIdare().getConnectivity().getConnext().createStatement().executeQuery(sql);
-            if(rs == null)
-                System.err.println("Gelen resultSet nesnesi = null");
-            else
-                System.out.println("Gelen resultSet nesnesi != null");
-            if(rs.next())
-                System.out.println("resultSet.next() = true");
-            else
-                System.err.println("resulSet.next() = false");
-            
-            
-            if(rs.next())
-                System.out.println("İkinci resultSet.next() komutu = true");
-            else
-                System.err.println("İkinci resulSet.next() komutu = false");
+            File file = new File("C:\\ProgramData\\MySQL\\MySQL Server 8.0\\resim.png");
+//            if(file.exists())
+//                System.out.println("Başarılı");
+            FileInputStream fStream = new FileInputStream(file);
+            String firstOrder = "CREATE TABLE veri(dosya MEDIUMBLOB);";
+            Statement st = idare.getConnectivity().getConnext().createStatement();
+            st.execute(firstOrder);
+            String sqlOrder = "INSERT INTO veri(dosya) VALUES(?)";
+            PreparedStatement stDosya = idare.getConnectivity().getConnext().prepareStatement(sqlOrder);
+            stDosya.setObject(1, fStream);
+            stDosya.execute();
         }
-        catch(SQLException exc){
-            System.err.println("Hatâ (getDataFromEmptyTable) : " + exc.toString());
-            System.err.println("Hatâ kodu : " + exc.getErrorCode());
-        }
-    }
-    public List getDataFromArrayClass(){
-        List<ArrayClass> list = getIdare().getData(ArrayClass.class);
-        if(list != null)
-            System.out.println("Veri çekme işlemi başarılı : " + list.size());
-        else
-            System.err.println("Veri çekme işlemi başarısız!");
-        return list;
-    }
-    public List getDataFromListClass(){
-        List<listClass> list = getIdare().getData(listClass.class);
-        if(list != null)
-            System.out.println("Veri çekme işlemi başarılı : " + list.size());
-        else
-            System.err.println("Veri çekme işlemi başarısız!");
-        return list;
-    }
-    public void createEmptyTable(String tableName){
-        String order = "CREATE TABLE " + tableName + "(id int);";
-        String order2 = "TRUNCATE TABLE " + tableName + ";";
-        try{
-            getIdare().getConnectivity().getConnext().createStatement().execute(order);
-            getIdare().getConnectivity().getConnext().createStatement().execute(order2);
-        }
-        catch(SQLException exc){
-            System.err.println("Hatâ (createEmptyTable) : " + exc.toString());
-            System.err.println("Hatâ kodu : " + exc.getErrorCode());
-        }
-    }
-    public void testProduceJSONTextFromMap(Map<Object, Object> map){
-        String text = idare.getJSONStringFromObject(map);
-        if(text != null){
-            System.err.println("text != null");
-            if(!text.isEmpty()){
-                System.err.println("!text.isEmpty");
-                System.out.println("text:\n\n" + text);
-            }
+        catch(IOException | SQLException exc){
+            System.err.println("exc : " + exc.toString());
         }
     }
 

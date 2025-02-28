@@ -19,7 +19,8 @@ public class Cvity{
     public enum DBType{
         MYSQL,
         MSSQL,
-        POSTGRESQL
+        POSTGRESQL,
+        SQLITE
     }
     public Cvity(Connection connext, String userName, String password, String schemaName){
         this.connext = connext;
