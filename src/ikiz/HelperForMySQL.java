@@ -19,11 +19,11 @@ public class HelperForMySQL implements HelperForDBType{
         return "jdbc:mysql://" + hostName + ":" + portNumber + "/" + dbName;
     }
     @Override
-    public char getStartSymbolOfName(){
+    public Character getStartSymbolOfName(){
         return '`';
     }
     @Override
-    public char getEndSymbolOfName(){
+    public Character getEndSymbolOfName(){
         return '`';
     }
     @Override
@@ -69,5 +69,13 @@ public class HelperForMySQL implements HelperForDBType{
     @Override
     public String getDataTypeNameForJSON(){
         return "JSON";
+    }
+    @Override
+    public String getDataTypeNameForEnum(){
+        return "ENUM";
+    }
+    @Override
+    public String getDatabaseProductName(){
+        return "MySQL";
     }
 }

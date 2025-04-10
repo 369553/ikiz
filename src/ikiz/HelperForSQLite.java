@@ -12,18 +12,18 @@ public class HelperForSQLite implements HelperForDBType{
     }
     @Override
     public String getConnectionString(String hostName, int portNumber){
-        return "jdbc:mysql://" + hostName + ":" + portNumber;
+        return null;
     }
     @Override
     public String getConnectionString(String hostName, int portNumber, String dbName){
-        return "jdbc:mysql://" + hostName + ":" + portNumber + "/" + dbName;
+        return "jdbc:sqlite:" + dbName;
     }
     @Override
-    public char getStartSymbolOfName(){
+    public Character getStartSymbolOfName(){
         return '`';
     }
     @Override
-    public char getEndSymbolOfName(){
+    public Character getEndSymbolOfName(){
         return '`';
     }
     @Override
@@ -65,5 +65,13 @@ public class HelperForSQLite implements HelperForDBType{
     @Override
     public String getDataTypeNameForJSON(){
         return "JSON";
+    }
+    @Override
+    public String getDataTypeNameForEnum(){
+        return "";
+    }
+    @Override
+    public String getDatabaseProductName(){
+        return "SQLite";
     }
 }

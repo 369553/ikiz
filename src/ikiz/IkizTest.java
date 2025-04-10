@@ -58,7 +58,7 @@ public class IkizTest{
         // Bu veriyi sil:
             int id = refreshed.id;
             idare.deleteRowFromDB(refreshed);
-        // Veriyi sorgula (gelmemesi lazım)
+        // Veriyi sorgula ('null' gelmesi lazım)
             Object value = idare.getDataById(User.class, id);
             if(value == null)
                 System.out.println("Silinen veri çağrıldığında 'null' döndü; sistem doğru çalışıyor");
@@ -79,15 +79,22 @@ public class IkizTest{
     }
     public void scenario7(){
         // Sistemi veritabanı verileri analiz ederek başlat:
-            idare.loadSystemConfsFromAnalyzingDB();
+            System.out.println("Sistem yüklemesi : " + idare.loadSystemByAnalyzingDB());
+//            boolean res = idare.loadSystemFromConfigurationFile(getConfigurationText());
+//            System.out.println("res : " + res);
+//            return;
         // Veritabanında vâr olan bir veriyi çek (User daha evvel oluşturulmuş olmalı):
             List<User> data = idare.getData(User.class);
         // Sonucu incele:
             System.out.println("Veri çekimi sonucu : " + (data == null ? "başarısız" : data.size()));
             data.forEach(System.out::println);
-        // Vârolan bir birincil anahtar ile müşahhas veri çekmeye çalış:
+        // Vâr olan bir birincil anahtar ile müşahhas veri çekmeye çalış:
             User u = idare.getDataById(User.class, data.get(0).id);
             System.out.println("Müşahhas veri çekimi : " + (u == null ? "başarısız!" : u.name + "\tu.id : " + u.id));
+    }
+    public void scenario8(){// Sistemi vt'den yükle, yapılandırmayı dışa aktar
+        idare.loadSystemByAnalyzingDB();
+        idare.saveAllConfiguration("C:\\Şimdilik bunları kullan");
     }
     public void showTablesFromInterface(){
         List<String> listOfTables = IkizIdare.getTableNames(getIdare().getConnectivity());
@@ -98,10 +105,16 @@ public class IkizTest{
         return new Cvity(conToDB, "root", "LINQSE.1177", "ikizTestNew");
     }
     public static Cvity connectToDBForMsSQL(){
-        Connection con = Cvity.connectDB("SA", "LINQSE.1177", "localhost", 1434, "vt1", Cvity.DBType.MSSQL);
-        if(con != null)
-            System.out.println("Veritabanı temeline bağlanıldı");
-        return new Cvity(con, "SA", "LINQSE.1177", "vt1");
+        Connection cn = Cvity.connectDB("SA", "LINQSE.1177", "localhost", 1434, "vt1", Cvity.DBType.MSSQL);
+        return new Cvity(cn, "SA", "LINQSE.1177", "vt1");
+    }
+    public static Cvity connectToDBForPostgreSQL(){
+        Connection cn = Cvity.connectDB("postgres", "Kfe1858.", "localhost", 5432, "ikizTestNew", Cvity.DBType.POSTGRESQL);
+        return new Cvity(cn, "postgres", "Kfe1858.", "ikizTestNew");
+    }
+    public static Cvity connectToDBForSQLite(){
+        Connection cn = Cvity.connectDB(null, null, null, 0, "C:\\Users\\Yazılım alanı\\Documents\\SQLite vt\\vt1vt1.db", Cvity.DBType.SQLITE);
+        return new Cvity(cn, null, null, "vt1");
     }
     public void testBLOB(){
         try{
@@ -120,6 +133,9 @@ public class IkizTest{
         catch(IOException | SQLException exc){
             System.err.println("exc : " + exc.toString());
         }
+    }
+    public String getConfigurationText(){
+        return rwservice.RWService.getService().readDataAsText("C:\\'Notlar - çizimler' - taze\\İkiz", "ikizConf.json");
     }
 
 // ERİŞİM YÖNTEMLERİ:

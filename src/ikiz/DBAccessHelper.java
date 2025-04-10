@@ -12,9 +12,13 @@ import java.util.HashMap;
 
 public class DBAccessHelper implements IDBAccessHelper{
     private Cvity connectivity;
+    private Character start;
+    private Character end;
 
     public DBAccessHelper(Cvity connectivity){
         this.connectivity = connectivity;
+        start = connectivity.getHelperForDBType().getStartSymbolOfName();
+        end = connectivity.getHelperForDBType().getEndSymbolOfName();
     }
 
 //İŞLEM YÖNTEMLERİ:
@@ -65,7 +69,6 @@ public class DBAccessHelper implements IDBAccessHelper{
             DatabaseMetaData md = this.connectivity.getConnext().getMetaData();
             ResultSet primaries = md.getPrimaryKeys(this.connectivity.getConnext().getCatalog(), this.connectivity.getConnext().getSchema(), tableName);
             while(primaries.next()){
-                System.out.println("döngü");
                 String name = primaries.getString("COLUMN_NAME");
                 if(name != null)
                     System.out.println("name : " + name);
@@ -83,9 +86,9 @@ public class DBAccessHelper implements IDBAccessHelper{
         if(tableName == null)
             return false;
         StringBuilder sqlOrder = new StringBuilder();
-        sqlOrder.append("DELETE FROM ").append(tableName);
+        sqlOrder.append("DELETE FROM ").append((start != null ? start : "")).append(tableName).append((end != null ? end : ""));
         if(whereCondition != null && answerOfWhereCondition != null){
-            sqlOrder.append(" WHERE ").append(whereCondition).append(" = ").append("?");
+            sqlOrder.append(" WHERE ").append((start != null ? start : "")).append(whereCondition).append((end != null ? end : "")).append(" = ").append("?");
         }
         sqlOrder.append(";");
         try{
@@ -110,7 +113,7 @@ public class DBAccessHelper implements IDBAccessHelper{
         if(tableName == null)
             return false;
         StringBuilder sqlOrder = new StringBuilder();
-        sqlOrder.append("DELETE FROM ").append(tableName);
+        sqlOrder.append("DELETE FROM ").append((start != null ? start : "")).append(tableName).append((end != null ? end : ""));
         int put = 0;
         if(whereConditions != null && answerOfWhereConditions != null){
             sqlOrder.append(" WHERE ");
@@ -119,7 +122,7 @@ public class DBAccessHelper implements IDBAccessHelper{
                     continue;
                 if(put > 0)
                     sqlOrder.append(" AND ");
-                sqlOrder.append(whereConditions[sayac]).append("=").append("?");
+                sqlOrder.append((start != null ? start : "")).append(whereConditions[sayac]).append((end != null ? end : "")).append("=").append("?");
                 put++;
             }
         }
@@ -160,14 +163,14 @@ public class DBAccessHelper implements IDBAccessHelper{
         if(fieldsToValues.isEmpty())
             return false;
         StringBuilder sqlOrder = new StringBuilder();
-        sqlOrder.append("UPDATE ").append(tableName).append(" SET ");
+        sqlOrder.append("UPDATE ").append((start != null ? start : "")).append(tableName).append((end != null ? end : "")).append(" SET ");
         int valuePut = 0;
         for(String key : fieldsToValues.keySet()){
             if(key == null)
                 continue;
             if(key.isEmpty())
                 continue;
-            sqlOrder.append(key).append(" = ?").append(", ");
+            sqlOrder.append((start != null ? start : "")).append(key).append((end != null ? end : "")).append(" = ?").append(", ");
             valuePut++;
         }
         if(valuePut > 0)// Herhangi bir değer konmuşsa;
@@ -180,7 +183,7 @@ public class DBAccessHelper implements IDBAccessHelper{
                     continue;
                 if(put > 0)
                     sqlOrder.append(" AND ");
-                sqlOrder.append(whereConditions[sayac]).append("=").append("?");
+                sqlOrder.append((start != null ? start : "")).append(whereConditions[sayac]).append((end != null ? end : "")).append("=").append("?");
                 put++;
             }
         }
@@ -253,18 +256,18 @@ public class DBAccessHelper implements IDBAccessHelper{
         else{
             for(String s : fieldNames){
                 if(s != null)
-                    query.append(s).append(", ");
+                    query.append((start != null ? start : "")).append(s).append((end != null ? end : "")).append(", ");
             }
             query.delete(query.length() - 2, query.length());// En sona eklenen ', ' karakterlerini sil.
         }
-        query.append(" FROM ").append(tableName);
+        query.append(" FROM ").append((start != null ? start : "")).append(tableName).append((end != null ? end : ""));
         if(whereConditions != null && answerOfWhereConditions != null){
             for(String s : whereConditions){
                 if(s == null)
                     continue;
                 if(whereCounter == 0)
                     query.append(" WHERE ");
-                query.append(s).append(" = ?").append(" AND ");
+                query.append((start != null ? start : "")).append(s).append((end != null ? end : "")).append(" = ?").append(" AND ");
                 whereCounter++;
             }
             query.delete(query.length() - 5, query.length());
@@ -304,7 +307,26 @@ public class DBAccessHelper implements IDBAccessHelper{
         }
         return data;
     }
-    
+    public boolean checkIsTableInDB(String tableName){
+        if(tableName == null)
+            return false;
+        if(tableName.isEmpty())
+            return false;
+        try{
+            Statement st = connectivity.getConnext().createStatement();
+            ResultSet rs = st.executeQuery(this.connectivity.getHelperForDBType().getSentenceForShowTables());
+            if(rs != null){
+                while(rs.next()){
+                    if(rs.getString(1).equalsIgnoreCase(tableName))
+                        return true;
+                }
+            }
+        }
+        catch(SQLException exc){
+            System.err.println("exc : " + exc.toString());
+        }
+        return false;
+    }
 
 //ERİŞİM YÖNTEMLERİ:
     

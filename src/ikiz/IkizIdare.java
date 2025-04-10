@@ -20,22 +20,30 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import jsoner.JSONArray;
+import jsoner.JSONObject;
+import rwservice.RWService;
 
+/**
+ * İkiz sisteminin çekirdeğini ifâde eden idâreci sınıftır
+ * Neredeyse tüm işlemler bu sınıf üzerinden yapılmakta veyâ başlatılmaktadır
+ * @author Mehmet Akif SOLAK
+ */
 public class IkizIdare{
     private static IkizIdare ikiz;
     private Cvity connectivity;
     private Confs confs;// IkizSistemi yapılandırma ayarları
     private ArrayList<String> workingTables;
-    private HashMap<String, List<Object>> bufferTables;
+    private HashMap<String, List<? extends Object>> bufferTables;
     private HashMap<String, Date> lastUpdateTimeOfTables;//Tabloların en son güncellendiği zamânı belirtiyor.
     private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.
     private ErrorTable errorTable;//Hatâların yazılması ve gösterilmesiyle ilgili bir sistem
-    private final char start, end;// Veritabanı sistemine göre bir özel ismin başlangıç ve sonunu belirten karakter
+    private final Character start, end;// Veritabanı sistemine göre bir özel ismin başlangıç ve sonunu belirten karakter
     private final HashMap<String, String> mapDataTypeToDBDataType;// Sistemin çalıştığı veritabanı sistemine göre veri tipleri eşleştirme haritası
-    private HashMap<String, HashMap<String, Field>> mapOfTardggetFields;// Her tablonun "özellik - Java veri tipi" bilgisini burada tut
     private HashMap<String, TableMetadata> metadataOfTables;// Tablolar hakkında bilgiler
     private DBAccessHelper dbAccess;// Veritabanındaki bâzı işlemlerin kolayca yapılması için bir sınıf
     private List<Class> loadedClasses;// Veritabanı tablolarından yapılandırma çıkarılması gerektiği durumda sınıflara ihtiyaç var.
+    private IkizMunferid ikizMunferid = null;// Verilerin sistem içerisinde tekil olmasını sağlamak için kullanılan yardımcı sınıf
 //    private HashMap<String, HashMap<
 
     private IkizIdare(Cvity connectivity){
@@ -45,11 +53,27 @@ public class IkizIdare{
         dbAccess = new DBAccessHelper(connectivity);
         errorTable = new ErrorTable();
         this.confs = Confs.getDefaultConfs();
+//        this.confs.bufferMode = true;
         this.mapDataTypeToDBDataType = HelperForHelperForDBType.getHelper(this.connectivity.getDBType()).getMapOfDataTypeToDBDataType();
+        getIkizMunferid();
+    }
+    /**
+     * 
+     * @param connectivity
+     * @param useBufferMode 
+     */
+    private IkizIdare(Cvity connectivity, boolean useBufferMode){
+        this(connectivity);
+        this.confs.bufferMode = true;
     }
 
 //İŞLEM YÖNTEMLERİ:
     //ANA BAŞLATMA YÖNTEMİ:
+    /**
+     * Verilen bağlantı test edilir ve uygunsa sistem başlatılır
+     * @param connectivity Sistemi başlatmak için gerekli veritabanı bağlantısı
+     * @return Sistemin başarıyla başlatılıp, başlatılmadığına dâir bilgi
+     */
     public static boolean startIkizIdare(Cvity connectivity){
         if(connectivity == null)
             return false;
@@ -59,12 +83,13 @@ public class IkizIdare{
         return true;
     }
     //SINIF FONKSİYONLARI:
-    public static String extractTableName(Class cls){
-        if(cls == null)
-            return null;
-        String[] splitted = cls.getName().split("\\.");
-        return splitted[splitted.length - 1];
-    }
+    /**
+     * Verilen bağlantı ile hedef veritabanındaki tablo isimleri getirilir
+     * Bağlantı hedefi müşahhas bir veritabanı değilse, başka sorunlar varsa
+     * veyâ işlem başarısız olursa {@code null} döndürülür
+     * @param connectivity Bağlantı
+     * @return İşlem başarılıysa tablo isim listesi veyâ {@code null}
+     */
     public static List<String> getTableNames(Cvity connectivity){
         String showTablesOrder = connectivity.getHelperForDBType().getSentenceForShowTables();
 //        System.err.println("sentence : " + showTablesOrder);
@@ -85,35 +110,45 @@ public class IkizIdare{
         }
         return null;
     }
-    public boolean integrateTableToIkiz(String tableName){
-        if(tableName == null)
-            return false;
-        if(tableName.isEmpty())
-            return false;
-        boolean isIn = Helper.isInTheList(getWorkingTables(), tableName);
-        if(isIn)// Tablo zâten sisteme entegre edilmişse işlemi sonlandır;
-            return true;
-        List<String> listOfTables = getTableNames(connectivity);// Tablo isimlerini al
-        Iterator<String> iter = listOfTables.iterator();
-        while(iter.hasNext()){
-            if(iter.next().equals(tableName)){
-                getWorkingTables().add(tableName);// Tabloyu çalışılan tablo isimlerinin arasına ekle
-                return true;
-            }
-        }
-        return false;
-    }
+    /**
+     * Verilen sınıf ile aynı isimde bir veritabanı tablosu oluşturur
+     * Tablo oluşturulurken {@code IkizIdare}'nin {@code Confs} tipindeki
+     * parametre ayarlarına bakılır
+     * Bu ayarlar, sınıfın hangi erişim belirteciyle tanımlanmış özelliklerinin
+     * alınacağını, sınıfın liste, dizi ve harita biçimindeki özelliklerinin
+     * nasıl ele alınacağını belirtir
+     * @param tableClass Veritabanı tablosuna dönüştürülmek istenen sınıf
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     */
     public boolean produceTable(Class tableClass){
         return produceTable(tableClass, null);
     }
-    public boolean produceTable(Class tableClass, TableConfiguration confsOfTable){
+    /**
+     * Verilen sınıf ile aynı isimde bir veritabanı tablosu oluşturur
+     * Tablo oluşturulurken IkizIdare parametre ayarları kullanılır
+     * İkinci parametreyle oluşturulacak veritabanı tablosu yapılandırılabilir
+     * Yapılandırmalar ve veri tipleri veritabanı desteğine göre belirlenir
+     * @param tableClass Veritabanı tablosuna dönüştürülmek istenen sınıf
+     * @param tableConfs Tablo yapılandırması
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     * @see {@code ikiz.TableConfiguration}
+     */
+    public boolean produceTable(Class tableClass, TableConfiguration tableConfs){
         if(tableClass == null)
             return false;
         String tableName = tableClass.getSimpleName();// Tablo ismi = veritabanı nesnesi (entity) ismi
+        for(String tbl : getWorkingTables()){
+            if(tbl.equals(tableName))// Daha evvel oluşturulmuş; not düşülebilir
+                return false;
+        }
         StringBuilder query;// Hâzırlanan sorgu
-        Field[] fields = tableClass.getDeclaredFields();
+        if(tableConfs == null){
+            tableConfs = new TableConfiguration(tableClass);
+        }
+        Field[] fields = tableConfs.getTakeableFields();// Tüm aday sütunları al
         String[] columnNames = new String[fields.length];
         String[] columnTypes = new String[fields.length];
+        Map<String, String> constraintTextsToProvideDataType = new HashMap<String, String>();
         int takedAttributesCounter = 0;// Alınan özellik sayısı sayacı
         HashMap<String, Field> metadataOnTargetFields = new HashMap<String, Field>();// İkiz için saklanan 'alan ismi - veri tipi' haritası
         // ANA ADIM - 1 : Alan isimlerini ve hedef veri tiplerini belirle:
@@ -135,9 +170,14 @@ public class IkizIdare{
                     if(results.get("result")){// Eğer veri tipi List veyâ Map veyâ Array (dizi) ise;
                         if(this.confs.getPolicyForListArrayMapFields() != Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE){// Kontrol 2.3 : Bu alanlar 'alınmayacak' olarak işâretlenmemişse;
                             if(this.confs.getPolicyForListArrayMapFields().equals(Confs.POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON)){// Bu veriler veritabanına JSON olarak kaydedilmek isteniyorsa;
-                                columnNames[takedAttributesCounter] = fields[sayac].getName();
+                                String fieldName = fields[sayac].getName();
+                                columnNames[takedAttributesCounter] = fieldName;
                                 columnTypes[takedAttributesCounter] = this.connectivity.getHelperForDBType().getDataTypeNameForJSON();
                                 takedAttributesCounter++;
+                                if(this.connectivity.getDBType().equals(Cvity.DBType.MSSQL)){
+                                    String textOfConst = "CHECK(ISJSON(" + fieldName + ") = 1)";
+                                    constraintTextsToProvideDataType.put("cons_" + fieldName, textOfConst);
+                                }
                                 isTaked = true;
                             }
                         }
@@ -146,16 +186,33 @@ public class IkizIdare{
                         }
                     }
                     else if(typeOfField.isEnum()){// 'enum' biçiminde bir veri tipi ise;
-//                        boolean isSupportedEnum = this.getConnectivity().getHelperForDBType().isSupported(Enum.class.getName());
-//                        if(isSupportedEnum){
-//                            columnTypes[takedAttributesCounter] = "ENUM";// Özel durum !!! : TÜm enum değerlerini parantez içinde belirtmelisin!
-//                            takedAttributesCounter++; 
-//                        }
-//                        else{
-//                            
-//                        }
-                        columnNames[takedAttributesCounter] = fields[sayac].getName();
-                        columnTypes[takedAttributesCounter] = getTypeNameForDB(String.class.getTypeName());
+                        String fieldName = fields[sayac].getName();
+                        boolean isSupportedEnum = this.getConnectivity().getHelperForDBType().isSupported(Enum.class.getName());
+                        StringBuilder colDataTypeText = new StringBuilder(this.getConnectivity().getHelperForDBType().getDataTypeNameForEnum());
+                        Object[] values = typeOfField.getEnumConstants();
+                        if(isSupportedEnum){// Özel durum !!! : TÜm enum değerlerini parantez içinde belirtmelisin, MySQL için
+                            colDataTypeText.append("(");
+                            for(Object obj : values){
+                                colDataTypeText.append("'").append(obj.toString()).
+                                        append("'").append(", ");
+                            }
+                            if(values.length > 0)
+                                colDataTypeText.delete(colDataTypeText.length() - 2, colDataTypeText.length());
+                            colDataTypeText.append(")");
+                        }
+                        else{
+                            StringBuilder textOfConst = new StringBuilder("CHECK(" + fieldName + " IN(");
+                            for(Object obj : values){
+                                textOfConst.append("'").append(obj.toString()).append("'");
+                                textOfConst.append(", ");
+                            }
+                            if(values.length > 0)
+                                textOfConst.delete(textOfConst.length() - 2, textOfConst.length());
+                            textOfConst.append("))");
+                            constraintTextsToProvideDataType.put("cons_" + fieldName, textOfConst.toString());
+                        }
+                        columnNames[takedAttributesCounter] = fieldName;
+                        columnTypes[takedAttributesCounter] = colDataTypeText.toString();
                         takedAttributesCounter++;
                         isTaked = true;
                     }
@@ -169,46 +226,47 @@ public class IkizIdare{
                 }
                 if(isTaked){
                     metadataOnTargetFields.put(fields[sayac].getName(), fields[sayac]);// Tablo hakkında ön bilgiyi hâzırla
-                    if(confsOfTable != null){// Metîn tipindeki veri için özel bir yapılandırma belirtildiyse..
-                        if(typeOfField.equals(String.class)){
-                            if(confsOfTable.getSpecifiedLength(columnNames[sayac]) != -1 || confsOfTable.getIsDefaultLengthOfStringChanged()){
-                                columnNames[sayac] = columnNames[sayac].replaceFirst("500", String.valueOf(confsOfTable.getLengthOfString(columnNames[sayac])));
-                            }
+                    // Metîn tipindeki veri için özel bir yapılandırma belirtildiyse..
+                    if(typeOfField.equals(String.class)){
+                        if(tableConfs.getSpecifiedLength(columnNames[sayac]) != -1 || tableConfs.getIsDefaultLengthOfStringChanged()){
+                            columnNames[sayac] = columnNames[sayac].replaceFirst("500", String.valueOf(tableConfs.getLengthOfString(columnNames[sayac])));
                         }
                     }
                 }
             }
         }
         System.out.println("tableName : "  + tableName);
-        query = new StringBuilder("CREATE TABLE " + start + tableName + end);
+        query = new StringBuilder("CREATE TABLE ").append((start != null ? start : "")).
+                append(tableName).append((end != null ? end : ""));
             query.append("(");
         for(int sayac = 0; sayac < takedAttributesCounter; sayac++){
-            query.append(start).
-            append(columnNames[sayac]).append(end).append(" ");
+            query.append((start != null ? start : "")).
+            append(columnNames[sayac]).append((end != null ? end : "")).append(" ");
             query.append(columnTypes[sayac]);
-            if(confsOfTable != null){
-                if(confsOfTable.isNotNull(columnNames[sayac]))// NOT NULL kısıtını ekle
-                    query.append(" NOT NULL ");
-                Object defValue = confsOfTable.getDefaultValues().get(columnNames[sayac]);// Varsayılan değer kısıtını ekle
-                if(defValue != null){
-                    query.append(" DEFAULT ? ");
-                }
+            if(tableConfs.isNotNull(columnNames[sayac]))// NOT NULL kısıtı varsa, ekle:
+                query.append(" NOT NULL ");
+            Object defValue = tableConfs.getDefaultValues().get(columnNames[sayac]);// Varsayılan değer kısıtı varsa, ekle
+            if(defValue != null){
+                query.append(" DEFAULT ? ");
             }
             if(sayac != takedAttributesCounter - 1)
                 query.append(", ");
         }
         
-        {//KISITLAR(CONSTRAINTS) EKLENECEK: DEFAULT kısıtı yukarıda ekleniyor
-            if(confsOfTable != null){// Tablo sınıfı için yapılandırma nesnesi gönderildiyse;
-                if(confsOfTable.getClassOfTable().equals(tableClass)){// Gönderilen yapılandırma nesnesinin sınıfı ile tablosu üretilmek istenen sınıf aynı ise;
-                    //1. Birincil anahtar ekle:
-                    if(confsOfTable.getIsConfSet().get("primaryKey")){// Birincil anahtar ayarı 'belirtildi' olarak işâretliyse
-                        query.append(", PRIMARY KEY(").append(start).append(confsOfTable.getPrimaryKey()).append(end).append(")");
-                    }
-                    for(String field : confsOfTable.getUniqueFields()){
-                        query.append(", UNIQUE(").append(start).append(field).append(end).append(")");
-                    }
+        {//KISITLAR(CONSTRAINTS) EKLENECEK: DEFAULT kısıtı yukarıda ekleniyor, NOT NULL kısıtı yukarıda ekleniyor
+            if(tableConfs.getClassOfTable().equals(tableClass)){// Gönderilen yapılandırma nesnesinin sınıfı ile tablosu üretilmek istenen sınıf aynı ise;
+                //1. Birincil anahtar ekle:
+                if(tableConfs.getIsConfSet().get("primaryKey")){// Birincil anahtar ayarı 'belirtildi' olarak işâretliyse
+                    query.append(", PRIMARY KEY(").append((start != null ? start : "")).append(tableConfs.getPrimaryKey()).append((end != null ? end : "")).append(")");
                 }
+                for(String field : tableConfs.getUniqueFields()){
+                    query.append(", UNIQUE(").append((start != null ? start : "")).append(field).append((end != null ? end : "")).append(")");
+                }
+            }
+            for(String nameOfConst : constraintTextsToProvideDataType.keySet()){// MsSQL'deki JSON ve ENUM veri tipleri sağlanması için kısıt eklenmesi gerekiyor
+                String textOfConst = constraintTextsToProvideDataType.get(nameOfConst);
+                query.append(", CONSTRAINT ").append((start != null ? start : "")).append(nameOfConst).append((end != null ? end : "")).
+                        append(" ").append(textOfConst);
             }
         }
             query.append(");");
@@ -216,31 +274,31 @@ public class IkizIdare{
             System.out.println("Gönderilen komut : " + query.toString());
             PreparedStatement prepSt = connectivity.getConnext().prepareStatement(query.toString());// Bu cursor tipinde hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE
             // Varsayılan değerleri koy:
-            if(confsOfTable != null){
-                int setCounter = 1;
-                for(int sayac = 0; sayac < takedAttributesCounter; sayac++){
-                    Object value = confsOfTable.getDefaultValues().get(columnNames[sayac]);
-                    if(value != null){
-                        if(value.getClass().equals(char.class) || value.getClass().equals(Character.class)){
-                            prepSt.setObject(setCounter, value, java.sql.JDBCType.CHAR);
-                        }
-                        else{
-                            prepSt.setObject(setCounter, value);
-                        }
-                        setCounter++;
+            int setCounter = 1;
+            for(int sayac = 0; sayac < takedAttributesCounter; sayac++){
+                Object value = tableConfs.getDefaultValues().get(columnNames[sayac]);
+                if(value != null){
+                    if(value.getClass().equals(char.class) || value.getClass().equals(Character.class)){
+                        prepSt.setObject(setCounter, value, java.sql.JDBCType.CHAR);
                     }
+                    else{
+                        prepSt.setObject(setCounter, value);
+                    }
+                    setCounter++;
                 }
             }
+            // Sorguyu çalıştır:
             prepSt.execute();
-            if(!confirmTableInDB(tableName)){
+            if(!dbAccess.checkIsTableInDB(tableName)){
                 System.err.println("Tablo oluşturma işlemi başarısız oldu");
                 return false;
             }
             prepSt.clearBatch();
-            getLastUpdateTimeOfTables().put(tableName, DTService.getService().getTime());
+//            getLastUpdateTimeOfTables().put(tableName, DTService.getService().getTime());
             getWorkingTables().add(tableName);// Çalışılan tablolara ismini ekle
-            TableMetadata tblMetaData = new TableMetadata(tableClass, confsOfTable, metadataOnTargetFields);
+            TableMetadata tblMetaData = new TableMetadata(tableClass, tableConfs, metadataOnTargetFields);
             getMetadataOfTables().put(tableName, tblMetaData);
+            tableConfs.setIsTableCreated(this, true);// Tablo yapılandırmasını değişikliklere karşı kilitle
             return true;
         }
         catch(SQLException ex){
@@ -248,6 +306,25 @@ public class IkizIdare{
             return false;
         }
     }
+    /**
+     * Veritabanı tablosua bir satır verisi ekler
+     * Gönderilen verinin sınıfı için daha önce tablo oluşturulmul olmalıdır
+     * Gönderilen verinin özellikleri, tablo oluşturulurken kullanılan
+     * {@code IkizIdare} yapılandırmasına göre alınır, yapılandırmada sonradan
+     * yapılan değişiklikler bu fonksiyonun çalışmasını etkilemez, sadece
+     * verinin alınması için gerekmesi durumunda 'getter' yönteminin hangi
+     * isimle aranacağı durumu değişebilir, bu, {@code Reflector.CODING_STYLE}
+     * tipiyle belirlenebilir
+     * Veri özellikleri alınırken {@code IllegalAccessException} hatâsıyla
+     * karşılaşılırsa ilgili alan verisini almak için getter yöntemi aranır
+     * Bu yöntemin hangi isimle aranacağı {@code IkizIdare}'nin kodlama biçimi
+     * ayarına göre belirlenir. Bunu belirlemek için {@code setCodingStyle()}
+     * yöntemini kullanabilirsiniz
+     * Bu yöntem, İkiz sistemine kaydedilmeyen tablolar için çalışmaz
+     * @param entity Veritabanına satır olarak eklenmek istenen veri
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     * @see {@code Reflector.CODING_TYPE}
+     */
     public boolean addRowToDB(Object entity){
         if(entity == null)
             return false;
@@ -258,14 +335,17 @@ public class IkizIdare{
             }
         }
         String tableName = entity.getClass().getSimpleName();
-        StringBuilder query = new StringBuilder("INSERT INTO " + tableName + "(");
+        if(!isInIkiz(tableName))// Sistem İkiz'de kayıtlı değilse işlemi sonlandır
+            return false;
+        StringBuilder query = new StringBuilder("INSERT INTO ").append((start != null ? start : ""))
+                .append(tableName).append((end != null ? end : "")).append("(");
         Map<String, Field> metadata = getMapOfTargetFields(entity.getClass().getSimpleName());
         Field[] taked = new Field[metadata.values().size()];
         metadata.values().toArray(taked);
         int takedAttributeNumber = metadata.size();
         for(Field fl : taked){
-            query.append(fl.getName());
-            query.append(", ");
+            query.append((start != null ? start : "")).append(fl.getName()).
+                    append((end != null ? end : "")).append(", ");
         }
         query.delete(query.length() - 2, query.length());// Sona eklenen fazladan ", " karakterlerini sil
         query.append(") VALUES (");
@@ -360,18 +440,41 @@ public class IkizIdare{
             return false;
         }
     }
+    /**
+     * Tabloyu veritabanından ve ikiz sisteminden kaldırmak için kullanılır
+     * @param cls Kaldırılmak istenen tablonun uygulamadaki karşılığı olan sınıf
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     */
     public boolean deleteTable(Class cls){// Hangi sınıfla ilişkili tablo silinmek isteniyorsa parametre olarak verilmelidir.
-        boolean tableDetected = false;// Tablo üzerinde çalışılan bir tablo ise 'true' olmalıdır
+        if(cls == null)
+            return false;
+        boolean tableDetected = false;
         Iterator<String> iter = getWorkingTables().iterator();
-        String tableName = extractTableName(cls);
+        String tableName = cls.getSimpleName();
+        if(!isInIkiz(tableName))// Sistem İkiz'de kayıtlı değilse işlemi sonlandır
+            return false;
         while(iter.hasNext()){
             if(iter.next().equals(tableName))
                 tableDetected = true;
         }
         if(tableDetected){
-            String delOrder = "DROP TABLE " + tableName;
+            String delOrder = new StringBuilder("DROP TABLE ").append((start != null ? start : ""))
+                    .append(tableName).append((end != null ? end : ""))
+                    .append(";").toString();
             try{
                 this.connectivity.getConnext().createStatement().execute(delOrder);
+                boolean isDeleted = !checkIsTableInDB(cls);
+                if(isDeleted){
+                    getWorkingTables().remove(tableName);
+                    getBufferTables().remove(tableName);
+                    getIkizMunferid().removeTable(tableName);
+                    getMetadataOfTables().remove(tableName);
+                    return true;
+                }
+                else{
+                    System.err.println("Tablo veritabanından silinemediği için sistemden de silinmedi!");
+                    return false;
+                }
             }
             catch(SQLException exc){
                 System.err.println("Tablo silinirken hatâ oluştu : " + exc.toString());
@@ -379,133 +482,46 @@ public class IkizIdare{
         }
         return false;
     }
-    public void setNullToCol(){//GEÇİCİ FONKSİYON, SONRA SİL
-        String sql = "UPDATE testSinifi SET name = null WHERE name=\"boş\"";
-        try {
-            boolean isSuccess = getConnectivity().getConnext().createStatement().execute(sql);
-            System.out.println("Başarılı işlem");
-        } catch (SQLException ex) {
-            System.err.println("Başarısız işlem!");
-        }
-    }
+    /**
+     * Bir tablo verisinin tümünü veritabanından çekmek için kullanılır;
+     * fakat eğer önbellekleme modu {@code bufferMode} açıksa, önbellekteki
+     * veriler getirilir
+     * Veri önbellekte yoksa, veritabanından getirilir ve önbelleğe kaydedilir
+     * Hedef tablonun İkiz'de yapılandırması olmadığı durumda veri getirilir,
+     * fakat önbellekleme hizmetlere dâhil edilmez
+     * Önbellekleme modunun açık olduğu ve tablonun birincil anahtarının olduğu
+     * durumda veri için yeni nesne oluşturulmaz; uygulamadaki nesneye yeni
+     * veriler zerk edilir
+     * @param <T> Veritabanı tablosunun karşılığı olan tip
+     * @param target Veritabanı nesnesinin sınıfı
+     * @return Nesne biçiminde veri listesi veyâ {@code null}
+     */
     public <T> List<T> getData(Class<T> target){
         return getData(target, null);
     }
+    /**
+     * İkiz'e kayıtlı olsun, olmasın veri çekilir; Tablo İkiz'e kayıtlı ise ve
+     * önbellekleme modu açıksa veri önbellekten getirilir
+     * Eğer önbellekte yoksa, veritabanından getirilir
+     * Verinin verilen alan değerleri çekilir ve hedef nesnelere zerk edilir
+     * İkiz'e kaydedilmeyen tablodaki dizi-liste-harita JSON olarak ele alınıyor
+     * @param <T> Veritabanı tablosunun karşılığı olan tip
+     * @param target Veritabanı nesnesinin sınıfı
+     * @param fieldsNames Verisi istenen sütun isimleri
+     * @return Nesne biçiminde veri listesi veyâ {@code null}
+     */
     public <T> List<T> getData(Class<T> target, List<String> fieldsNames){
-        return (List<T>) getData(target, fieldsNames, true);
+        return (List<T>) getDataMain(target, fieldsNames, true, false);
     }
+    /**
+     * Verinin istenen alanlarının değerleri ham olarak getirilir
+     * @param target Veritabanı nesnesinin sınıfı
+     * @param fieldNames Verisi istenen sütun isimleri
+     * @return Harita barındıran liste biçiminde veriler veyâ {@code null}
+     */
     public List<Map<String, Object>> getValuesFromTable(Class<?> target, List<String> fieldNames){
-        Object obj = getData(target, fieldNames, false);
+        Object obj = getDataMain(target, fieldNames, false, false);
         return (obj == null ? null : (List<Map<String, Object>>) obj);
-    }
-    private <T> List<Object> getDataForOneField(Class<?> target, String field, Class<T> classOfField, boolean cast){
-        if(field == null)
-            return null;
-        List<String> names = new ArrayList<String>();
-        names.add(field);
-        Object result = getValuesFromTable(target, names);
-        if(result != null){
-            List<Map<String, Object>> asListOfCast = ((List<Map<String, Object>>) result);
-            List<T> values = new ArrayList<T>();
-            List<Object> notCastedValues = new ArrayList<Object>();
-            for(Map row : asListOfCast){
-                Object fieldValue = row.values().iterator().next();
-                if(!cast){// Veri dönüştürülmeyecekse dönüştürmeye çalışma
-                    notCastedValues.add(fieldValue);
-                    continue;
-                }
-                if(fieldValue != null){
-                    try{
-                        T casted = classOfField.cast(fieldValue);
-                        values.add(casted);
-                    }
-                    catch(ClassCastException exc){
-                        System.err.println("exc. : : " + exc.toString());
-                    }
-                }
-            }
-            if(cast)
-                return (List<Object>) values;
-            else
-                return notCastedValues;
-        }
-        return null;
-    }
-    /**
-     * Veri dönüştürülür ('casting') ve {@code null} veriler getirilmez.
-     * @param <T>
-     * @param target
-     * @param field
-     * @param classOfField
-     * @return 
-     */
-    public <T> List<T> getDataForOneField(Class<?> target, String field, Class<T> classOfField){
-        return (List<T>) getDataForOneField(target, field, classOfField, true);
-    }
-    /**
-     * Veri dönüştürme ('cast') yapılmaz ve {@code null} veriler de getirilir
-     * @param target
-     * @param field
-     * @return 
-     */
-    public List<Object> getDataForOneField(Class<?> target, String field){
-        return getDataForOneField(target, field, null, false);
-    }
-    public <T> T getDataById(Class<T> target, Object primaryKeyValue){// İşlem hızı açısından 'List<T> getDataByField' yöntemini tercih etmiyorum.
-        if(target == null)
-            return null;
-        if(primaryKeyValue == null)
-            return null;
-        String tableName = target.getSimpleName();
-        TableMetadata md = getMetadataOfTable(tableName);
-        T value = null;
-        try{
-            TableConfiguration confOfTable = md.getConfs();
-            if(confOfTable.getIsConfSet().get("primaryKey")){
-                String primaryKey = confOfTable.getPrimaryKey();
-                List<T> rows = getDataByField(target, primaryKey, primaryKeyValue);
-                if(rows != null)
-                    return rows.get(0);
-            }
-        }
-        catch(NullPointerException exc){
-            System.err.println("NullPointer exc : " + exc.toString());
-        }
-        return value;
-    }
-    public <T> List<T> getDataByField(Class<T> target, String fieldName, Object valueForTheGivenField){
-        if(target == null || fieldName == null)
-            return null;
-        String tableName = target.getSimpleName();
-        TableMetadata md = getMetadataOfTable(tableName);
-        List<T> values = null;
-        try{
-            if(md.getMapOfTargetFields().get(fieldName) != null){
-                List<Map<String, Object>> dataOfRecords = dbAccess.getDataForOneWhereCondition(tableName, null, fieldName, valueForTheGivenField);
-                values = new ArrayList<T>();
-                List<Field> specialFields = new ArrayList<Field>();
-                for(String s : md.getMapOfTargetFields().keySet()){
-                    Field fl = md.getMapOfTargetFields().get(s);
-                    Map<String, Boolean> analysis = isListOrMapOrArray(fl.getType());
-                    if(analysis.get("result")){
-                        specialFields.add(fl);
-                    }
-                }
-                for(Map<String, Object> row : dataOfRecords){
-                    for(Field special : specialFields){
-                        Object specialData = row.get(special.getName());
-                        if(specialData != null){
-                            row.put(special.getName(), convertJSONtoTarget(String.valueOf(specialData), special));
-                        }
-                    }
-                    values.add(Reflector.getService().pruduceNewInjectedObject(target, row, this.confs.codingStyleForGetterSetter));
-                }
-            }
-        }
-        catch(NullPointerException exc){
-            System.err.println("NullPointer exc : " + exc.toString());
-        }
-        return values;
     }
     /*
     EKLE:
@@ -513,136 +529,175 @@ public class IkizIdare{
         ŞARTLI VERİ ÇEKME (WHERE İFÂDESİYLE..)
         
     */
-    private <T> Object getData(Class<T> target, List<String> fieldNames, boolean getAsObject){//Tablodaki verilerin büyük olması durumunda verilerin tamâmını almak için bunları bigint gibi sayılarda tutmalıyız
+    /**
+     * Hedef tablodan sadece istenen sütunun verileri liste biçiminde döndürülür
+     * Veri dönüştürülür ('casting') ve {@code null} veriler getirilmez.
+     * @param <T> Verinin uygulamada dönüştürülmek istenen muadil tipi
+     * @param target Hedef tablonun uygulamadaki karşılığı olan sınıf
+     * @param columnName Sütun ismi
+     * @param classOfColumn Sütunun dönüştürüleceği hedef sınıf
+     * @return {@code T} tipinde verileri barındıran liste veyâ {@code null}
+     */
+    public <T> List<T> getColumnValues(Class<?> target, String columnName, Class<T> classOfColumn){
+        return (List<T>) getColumnValuesMain(target, columnName, classOfColumn, true);
+    }
+    /**
+     * Hedef tablodan sadece istenen sütunun verileri liste biçiminde döndürülür
+     * Veri dönüştürme ('cast') yapılmaz ve {@code null} veriler de getirilir
+     * @param target Hedef tablonun uygulamadaki karşılığı olan sınıf
+     * @param field Sütun ismi
+     * @return Veritabanından döndürülen tipte veri listesi veyâ {@code null}
+     */
+    public List<Object> getColumnValues(Class<?> target, String field){
+        return getColumnValuesMain(target, field, null, false);
+    }
+    /**
+     * Bir tablodan birincil anahtar kullanarak veri çekmek için kullanılır
+     * İkiz'e kayıtlı olmayan tablo için çalışmaz
+     * Önbellekleme modu açıksa ve veri önbelleklenmişse, önbellekten getirilir
+     * Önbellekte olmayan veri veritabanından getirilir, hedefe zerk edilir
+     * Önbellekleme modu açıksa, mevcut veriye zerk işlemi yapılır
+     * Önbellekleme modu kapalıysa veri, yeni bir nesne olarak getirilir
+     * @param <T> Verinin uygulamadaki karşılığı olan tip
+     * @param target Hedef tablonun uygulamadaki karşılığı olan sınıf
+     * @param primaryKeyValue Birincil anahtar değeri
+     * @return Veri varsa ve hatâ yoksa istenen veri, aksi hâlde {@code null}
+     */
+    public <T> T getDataById(Class<T> target, Object primaryKeyValue){
         if(target == null)
             return null;
-        if(fieldNames != null)
-            if(fieldNames.isEmpty())
-                return null;
-        String tableName = target.getSimpleName();
-        if(this.confs.bufferMode){// Veri tazeleme modu, burada farklılaştırılabilir. Misal, veri istendiğinde belirli bir süredir tazeleme olmadıysa veriyi çek, diğer durumda önbellekteki veriyi getir gibi
-            // İlâve lazım..
-            List<Object> data = getDataFromBuffer(tableName);
-            if(data != null)
-                return data;
-        }
-        if(fieldNames == null){// Eğer sütun isimleri verilmediyse tüm sütun isimlerini al
-            fieldNames = new ArrayList<String>();
-            for(String s : getMapOfTargetFields(tableName).keySet()){
-                fieldNames.add(s);
-            }
-        }
-        boolean keepGo = confirmTableInDB(tableName);// Önce tablonun olup, olmadığına bakılıyor; bu, gereksiz bir işlem sayılabilir. Performansı arttırmak için sorgudan dönen hatâ sonucunu ele al
-        if(!keepGo){
-            System.err.println("İlgili tablo veritabanında olmadığından işlem sonlandırıldı!");
+        if(primaryKeyValue == null)
             return null;
+        String tableName = target.getSimpleName();
+        if(!isInIkiz(tableName))// Sistem İkiz'de kayıtlı değilse işlemi sonlandır
+            return null;
+        TableMetadata md = getMetadataOfTable(tableName);
+        T value = null;
+        System.err.println("]$ buffer : " + this.confs.bufferMode);
+        if(this.confs.bufferMode && getIkizMunferid().isIndexedBefore(target)){
+            System.err.println("]$ isIndexedBefore");
+            return getIkizMunferid().getCurrentObjectWithPrimaryKey(target, primaryKeyValue);
         }
-        List<Map<String, Object>>  liDataOfObjectsBeforeInstantiation = dbAccess.getData(tableName, fieldNames);
-        if(!getAsObject)
-            return liDataOfObjectsBeforeInstantiation;
-        //ELDEKİLER:
-            //liDataOfObjectsBeforeInstantation : Her bir eleman için özellik, değer çifti içeren harita listesi, tipi : ArrayList<HashMap<String, Object>>
-            //Yapılması gereken 1 : Öncelikle parametresiz bir yapıcı fonksiyon ara
-            //Yapılması gereken 2 : Eğer parametresiz yapıcı fonksiyon yoksa, ikizIdare parametresiyle çalışan yapıcı fonksiyon aranabilir,
-                //bu özellik sonra eklenecek, bi iznillâh
-            //Yapılması gereken 3 : Sınıfın tüm yapıcı fonksiyonlarını al
-            //Yapılması gereken 4 : Eldeki <özellik, değer> çiftleriyle hangi eleman için hangi yapıcı fonksiyonun kullanılmasının
-                //uygun olduğunu tespit edip, o yapıcı yöntemi kullanan
-                //bir yönteme <özellik, değer> çiftlerini ve yapıcı fonksiyonları gönder
-            //Yapılması gereken 5 : İlgili yöntemden gelen nesneyi listeye ekle
-            //Sınıfın yapıcı fonksiyonları (constructors) (css):
-        Constructor[] css = target.getConstructors();
-        Constructor noParamCs = null;
-        for(Constructor cs : css){
-            if(cs.getParameterCount() == 0){
-                noParamCs = cs;
-                break;
-            }
-        }
-        List<T> liData = new ArrayList<T>();
-        //Parametresiz yapıcı fonksiyonla elemanları üret:
-        if(noParamCs != null){
-            for(Map<String, Object> mapOfAttributesOfRow : liDataOfObjectsBeforeInstantiation){
-                Object instance;
-                try{
-                    instance = noParamCs.newInstance(null);
-                }
-                catch(InstantiationException ex){
-                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
-                    return null;
-                }
-                catch(IllegalAccessException ex){
-                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
-                    return null;
-                }
-                catch(IllegalArgumentException ex){
-                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
-                    return null;
-                }
-                catch(InvocationTargetException ex){
-                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
-                    return null;
-                }
-                liData.add(assignAttributes(target, mapOfAttributesOfRow));// Verileri ilgili alanlara zerk et
-            }
-//            System.out.println("Üretilen değişkenin sınıf ismi : " + data[0].getClass().getName());
-//            System.out.println("Veri tipi dönüşümü yapılmış değişkenin sınıf ismi : " + target.cast(data[0]).getClass().getName());
-            return liData;
-        }
-        //Eğer parametresiz yapıcı fonksiyon yoksa:
-        //.;.
-        if(this.confs.workWithNonParameterConstructor && css[0].getParameterCount() != 0){
-                System.out.println("Parametresiz yapıcı yöntemle çalışma etkin; lâkin sınıfın böyle bir kurucu yöntemi yok!");
-                return null;
-        }
-        //.;.
-        // Uygun yapıcı yöntemi seç, nesneleri oluştur ve ata
-        //GEÇİCİ:
-        return null;
-    }
-    public void test(String tableName){
-        Statement st = null;
-        ResultSet result = null;
         try{
-            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE,ResultSet.CONCUR_UPDATABLE
-            result = st.executeQuery("SHOW TABLES");
-            while(result.next()){
-                String name = result.getString(1);
-                System.out.println("tablo ismi : " + name);
-            }
-        }
-        catch(SQLException ex){
-            System.out.println("hatâ : " + ex.getMessage());
-        }
-        
-        //DENEME - 2:
-        try{
-            st = this.getConnectivity().getConnext().createStatement();// Hatâ veriyor : ResultSet.TYPE_SCROLL_SENSITIVE,ResultSet.CONCUR_UPDATABLE
-            result = st.executeQuery("SELECT * FROM " + tableName);
-//            System.out.println("resultSet yapılandırma bilgileri : " + analysis.getMetaData().toString());
-            while(result.next()){
-                int sayac = 1;
-                for(;sayac < result.getMetaData().getColumnCount() + 1; sayac++){
-                    Object data = result.getObject(sayac);
-                    result.getObject(sayac);
-                    if(data != null)
-                        System.out.println("data.getClass().getName() : " + data.getClass().getName());
+            TableConfiguration confOfTable = md.getConfs();
+            if(confOfTable.getIsConfSet().get("primaryKey")){
+                String primaryKey = confOfTable.getPrimaryKey();
+                List<T> rows = getDataByFieldMain(target, primaryKey, primaryKeyValue, true);
+                System.err.println("]$ tersi, alınan verilerin ilki : " + rows.get(0));
+                if(rows != null){
+                    if(!rows.isEmpty())
+                        value = rows.get(0);
                 }
-                System.out.println("Tablodaki sütun sayısı : " + sayac);
             }
         }
-        catch(SQLException ex){
-            System.out.println("hatâ : " + ex.getMessage());
-            return;
+        catch(NullPointerException exc){
+            System.err.println("NullPointer exc : " + exc.toString());
         }
+        return value;
     }
+    /**
+     * Verilen sütun ismine göre 'WHERE' şartıyla veri çekmek için kullanılır
+     * Önbellekleme modu aktifse ve veri önbelleklenmişse, önbellekten getirilir
+     * @param <T> Verinin uygulamadaki karşılığı olan tip
+     * @param target Hedef tablonun uygulamadaki karşılığı olan sınıf
+     * @param fieldName Eşitlik içeren WHERE şartındaki sütun ismi
+     * @param valueForTheGivenField WHERE şartındaki sütunun değeri
+     * @return Nesne biçiminde veri veyâ {@code null}
+     */
+    public <T> List<T> getDataWithOneWhereCondition(Class<T> target, String fieldName, Object valueForTheGivenField){
+        return getDataByFieldMain(target, fieldName, valueForTheGivenField, false);
+    }
+    /**
+     * Verilen sınıfın isminde veritabanı tablosu olup, olmadığı sorgulanır
+     * @param cls Hedef sınıf
+     * @return Tablonun varlığı doğrulanırsa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean checkIsTableInDB(Class cls){// DEĞİŞTİR
+        if(cls == null)
+            return false;
+        return dbAccess.checkIsTableInDB(cls.getSimpleName());
+    }
+    /**
+     * Verilen isimdeki tablonun veritabanındaki varlığını kontrol eder
+     * @param tableName Tablo ismi
+     * @return Tablo mevcutsa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean checkIsTableInDB(String tableName){
+        return dbAccess.checkIsTableInDB(tableName);
+    }
+    /**
+     * Veritabanında vâr olan ve İkiz'e kayıtlı olmayan tabloyu İkiz'e ekler
+     * Verilen sınıfı İkiz sistemine dâhil ederek, sorgulama yapıldığında
+     * önbellekleme modu, hızlı veri çekimi tablo yapılandırmasının sistemde
+     * saklanması gibi ilâve özellikler kazandırılır
+     * @param cls İkiz sistemine kaydedilmek istenen veritabanı tablo sınıfı
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     */
+    public boolean integrateTableClassToIkiz(Class cls){
+        if(cls == null)
+            return false;
+        if(Helper.isInTheList(workingTables, cls.getSimpleName())){
+            System.err.println("İlgili isimde bir kayıt sistemde yer alıyor");
+            return false;
+        }
+        if(!checkIsTableInDB(cls)){// Veritabanı tablosunun varlığını kontrol et
+            System.err.println("Verilen sınıfla aynı isimde bir veritabanı tablosu bulunamadı!");
+            return false;
+        }
+        String tableName = cls.getSimpleName();
+        // Veritabanından tabloyla ilgili önverileri çek:
+        List<String> fieldNames = dbAccess.getFieldNames(tableName);// Sütun isimlerini al
+        HashMap<String, Field> mapOfTargets = extractMapOfTargetFields(fieldNames, cls);// Karşılığı olan alanları bul
+        TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls);// Tablo yapılandırma nesnesini oluştur
+        TableMetadata md = new TableMetadata(cls, tblConfs, mapOfTargets);// Tablo önveri nesnesini oluştur
+        getMetadataOfTables().put(cls.getSimpleName(), md);// Bu yapılandırmayı kaydet
+        getWorkingTables().add(tableName);// Tabloyu çalışılan tablo listesinin arasına kaydet
+        return true;
+    }
+    /**
+     * İkiz'de kayıtlı olan bir tabloyu yalnızca İkiz sisteminden kaldırır
+     * @param cls Hedef tablonun uygulamadaki karşılığı olan sınıf
+     * @return İşlem başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean discardTableFromIkiz(Class cls){
+        if(cls == null)
+            return false;
+        String tableName = cls.getSimpleName();
+        if(!isInIkiz(tableName))
+            return false;
+        getWorkingTables().remove(tableName);// Tabloyu İkiz listesinden kaldır
+        getMetadataOfTables().remove(tableName);// Tablo ön bilgilerini kaldır
+        getIkizMunferid().removeTable(tableName);// İndeksten ve önbelleklemeden kaldır
+        return true;
+    }
+    /**
+     * Verilen nesne İkiz sisteminde kayıtlıysa, veri değişikliği veritabanına
+     * iletilir
+     * Bunun için tabloda, verilen nesnenin diğer satırlardan ayırt
+     * edilmesini sağlayan birincil anahtar veyâ 'NOT NULL + UNIQUE' kısıtlarını
+     * taşıyan bir sütun olmalıdır
+     * Birincil anahtarı veyâ 'NOT NULL + UNIQUE' kısıtlarını taşıyan sütun
+     * yoksa veri değişikliği veritabanına gönderilemez
+     * @param entity Veritabanı nesnesi
+     * @return Etkilenen satır varsa {@code true}, diğer durumlarda {@code false}
+     */
     public boolean updateRowInDB(Object entity){//Belli bir alanının tazelenmesi istenmiyorsa tüm alanları tazele
         return updateRowInDB(entity, null);
     }
+    /**
+     * Birincil anahtarı veyâ 'NOT NULL + UNIQUE' ksııtı olan ve İkiz'e kayıtlı
+     * olan bir tablonun satırının belirli değerlerini tazelemek için kullanılır
+     * Bu yöntem, İkiz sistemine kaydedilmeyen tablolar için çalışmaz
+     * @param entity Veritabanı nesnesi
+     * @param fieldNames Hedef tabloda hangi verilerin tazeleneceği bilgisi
+     * @return Etkilenen satır varsa {@code true}, diğer durumlarda {@code false}
+     */
     public boolean updateRowInDB(Object entity, List<String> fieldNames){//Belli bir alanının tazelenmesi istenmiyorsa tüm alanları tazele
         if(entity == null)
             return false;
         String tableName = entity.getClass().getSimpleName();
+        if(!isInIkiz(tableName))// Sistem İkiz'de kayıtlı değilse işlemi sonlandır
+            return false;
         TableMetadata md = getMetadataOfTable(tableName);
         TableConfiguration tblConfs = md.getConfs();
         boolean applyForceUpdate = false;// Veriyi zor yoldan bulmak gerekiyorsa 'true' olmalı
@@ -688,16 +743,24 @@ public class IkizIdare{
         }
         return false;
     }
+    /**
+     * Bir satırı diğerlerinden ayıran birincil anahtar veyâ 'NOT NULL + UNIQUE'
+     * kısıtlı ve İkiz'e kayıtlı olan tablodaki bir satırın silinmesi içindir
+     * Bu yöntem, İkiz sistemine kaydedilmeyen tablolar için çalışmaz
+     * @param entity Veritabanı nesnesi
+     * @return Etkilenen satır varsa {@code true}, diğer durumlarda {@code false}
+     */
     public boolean deleteRowFromDB(Object entity){
         if(entity == null)
             return false;
         String tableName = entity.getClass().getSimpleName();
-        if(!isInDB(tableName))
-            return false;// İlgili verinin tutulduğu bir tablo yok
+        if(!isInIkiz(tableName))// Sistem İkiz'de kayıtlı değilse işlemi sonlandır
+            return false;
         TableMetadata md = getMetadataOfTable(tableName);
         TableConfiguration tblConfs = md.getConfs();
         boolean applyForceDelete = false;
         if(tblConfs != null){
+            boolean isSuccess = false;// İşlemin başarılıysa 'true' olmalıdır
             // 1) Birincil anahtar üzerinden veriyi silmeye çalış
             // 2) Münferid alan üzerinden veriyi silmeye çalış (önce NULL olmayan münferid alana bak)
             String primaryKey = tblConfs.getPrimaryKey();
@@ -706,12 +769,16 @@ public class IkizIdare{
             if(primary != null){
                 Object valueOfPrimary = getValueOfFieldAsConverted(entity, primary);
                 if(valueOfPrimary != null){
-                    return dbAccess.deleteRow(tableName, primaryKey, valueOfPrimary);
+                    isSuccess = dbAccess.deleteRow(tableName, primaryKey, valueOfPrimary);
+                    if(isSuccess && this.confs.bufferMode){// Silme işlemi başarılıysa;
+                        getIkizMunferid().deleteObjectOnBufferByPrimaryKey(tableName, valueOfPrimary);// İlgili nesneyi önbellekteki indeksten de sil
+                    }
+                    return isSuccess;
                 }
                 else
                     return false;// Böyle bir dallanmaya düşülmemesi lazım normal işleyişte; birincil anahtar NULL ise ne yapılabilir?
             }
-            else{// NOT NULL ve UNIQUE kısıtını berâber taşıyan sütun varsa, onları kullanarak silmeye çalış
+            else{// NOT NULL ve UNIQUE kısıtını berâber taşıyan bir sütun varsa, onları kullanarak silmeye çalış
                 String usableField = "";
                 for(String s : tblConfs.getUniqueFields()){// NOT NULL + UNIQUE
                     if(tblConfs.isNotNull(s)){
@@ -723,9 +790,13 @@ public class IkizIdare{
                     }
                 }
                 if(!usableField.isEmpty()){// NOT NULL + UNIQUE bir alan varsa veyâ bu nesnenin değeri alan bir UNIQUE alanı varsa;
-                    return dbAccess.deleteRow(tableName, usableField, getValueOfFieldAsConverted(entity, md.getMapOfTargetFields().get(usableField)));
+                    Object valueOfUsableField = getValueOfFieldAsConverted(entity, md.getMapOfTargetFields().get(usableField));
+                    isSuccess = dbAccess.deleteRow(tableName, usableField, valueOfUsableField);
+//                    if(isSuccess && this.confs.bufferMode)// Silme işlemi başarılıysa; Şu an sadece birincil anahtara göre indeksleme yapıldığından gerek yok
+//                        getIkizMunferid().deleteObjectOnBufferByReference(entity);// İlgili nesneyi önbellekten sil
                 }
             }
+            return isSuccess;
         }
         else{
             applyForceDelete = true;
@@ -737,28 +808,179 @@ public class IkizIdare{
         }
         return false;
     }
-    public String readLastError(){
-        return getErrorTable().readError();
+//    public String readLastError(){
+//        return getErrorTable().readError();
+//    }
+//    public ArrayList<String> readAllErrors(){
+//        ArrayList<String> all = new ArrayList<String>();
+//        boolean go = true;
+//        while(go){
+//            String text = getErrorTable().readError();
+//            if(text == null){
+//                go = false;
+//                 break;
+//            }
+//            all.add(text);
+//        }
+//        return all;
+//    }
+    /**
+     * Bir sınıfın İkiz'e entegre olup, olmadığını sorgulamak için kullanılır
+     * @param cls Varlığı sorgulanmak istenen tablonun karşılığı olan sınıf
+     * @return Sınıf İkiz'e entegreyse {@code true}, aksi hâlde {@code false}
+     */
+    public boolean isInIkiz(Class cls){
+        return (cls == null ? false : isInIkiz(cls.getSimpleName()));
     }
-    public ArrayList<String> readAllErrors(){
-        ArrayList<String> all = new ArrayList<String>();
-        boolean go = true;
-        while(go){
-            String text = getErrorTable().readError();
-            if(text == null){
-                go = false;
-                 break;
+    /**
+     * Veritabanındaki verileri çekerek tampon bölgedeki verileri tazeler
+     * @return İşlemin tümü başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean syncDataByPullFromDB(){
+        boolean isSuccessfulWhole = true;
+        for(String str : getWorkingTables()){
+            TableMetadata md = getMetadataOfTables().get(str);
+            boolean isSuccessful = syncDataByPullFromDB(md.getTargetClass());
+            if(!isSuccessful){
+                System.err.println("Şu tablonun veritabanı eşleşmesi başarısız oldu! : " + str);
+                isSuccessfulWhole = false;
             }
-            all.add(text);
         }
-        return all;
+        return isSuccessfulWhole;
     }
-    public boolean isInDB(String tableName){
-        for(String s : getWorkingTables()){
-            if(s.equals(tableName))
-                return true;
+    /**
+     * 
+     * @param target Verilen sınıfın karşılığı veritabanı tablosundaki veriler
+     * çekilir ve tampon bölgedeki (önbellekteki) veriler tazelenir
+     * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
+     */
+    public <T> boolean syncDataByPullFromDB(Class<T> target){
+        if(!this.confs.bufferMode){
+            System.err.println("Önbellekleme modu aktif değil!");
+            return false;
         }
-        return false;
+        if(target == null)
+            return false;
+        Object dataAsObj = getDataMain(target, null, true, true);
+        return true;
+    }
+    /**
+     * İkiz'deki tablo yapılandırmalarını veritabanını analiz ederek yükler
+     * Bu, İkiz'in kendi yapılandırmalarını içermez
+     * İkiz'in kendi yapılandırmasını {@code importIkizConfigurationsFromFile()} ile içe
+     * aktarabilirsiniz
+     * @return Yükleme işlemi başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean loadSystemByAnalyzingDB(){
+        // İkiz yapılandırma tablosunun veri olarak tespîtinin önlenmesini kodla
+//        String dbName = this.connectivity.getSchemaName();
+        List<String> tables = dbAccess.getTableNames();
+        if(tables == null){
+            System.err.println("Veritabanı analizi başarısız oldu.");
+            return false;
+        }
+        getWorkingTables().addAll(tables);// İşlem - 1 : Çalışılan veritabanı isimlerini kaydet
+        // İşlem - 2 : Tablo önbilgilerini tespit et ve kaydet;
+        for(String tbl : getWorkingTables()){
+            List<String> fieldNames = dbAccess.getFieldNames(tbl);
+            Class cls = getSuitableClassOnTheList(tbl, fieldNames);
+            if(cls == null){
+                System.err.println("Şu sınıfın uygulamadaki karşılığı bulunamadı : " + tbl);
+                continue;
+            }
+            HashMap<String, Field> mapOfTargets = extractMapOfTargetFields(fieldNames, cls);
+            TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls);
+            TableMetadata md = new TableMetadata(cls, tblConfs, mapOfTargets);
+            getMetadataOfTables().put(cls.getSimpleName(), md);// Ayarları İkiz'e aktar
+        }
+        return true;
+    }
+    /**
+     * Sadece İkiz'in yapılandırmasını içe aktarır
+     * Verilen yapılandırma metîn dosyasındaki diğer ayarlar yüklenmez
+     * @param jsonText Yapılandırma metîn dosyası
+     * @return İçe aktarma başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean importIkizConfigurations(String jsonText){
+        if(jsonText == null)
+            return false;
+        if(jsonText.isEmpty())
+            return false;
+        return loadSystemFromConfigurationFile(jsonText, true);
+    }
+    /**
+     * Verilen dizindeki 'ikizconfs.json' yapılandırma dosyasındaki sadece
+     * İkiz yapılandırmasını yükler
+     * Hedef dizinde bu dosya yoksa, veyâ başarısız olunursa {@code false} döner
+     * @param path Kaynağın bulunduğu dizin
+     * @return İçe aktarma başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean importIkizConfigurationsFromFile(String path){
+        if(path == null)
+            return false;
+        if(path.isEmpty())
+            return false;
+        String jsonText = RWService.getService().readDataAsText(path, "ikizconfs.json");
+        return importIkizConfigurations(jsonText);
+    }
+    /**
+     * Verilen tüm sistem yapılandırma metniyle sistemi yükler
+     * Bu yükleme, İkiz yapılandırması + tablo yapılandırmalarını kapsar
+     * @param jsonText Sistem yapılandırma JSON metni
+     * @return Yükleme işlemi başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean loadSystemFromAllConfigurations(String jsonText){
+        if(jsonText == null)
+            return false;
+        if(jsonText.isEmpty())
+            return false;
+        return loadSystemFromConfigurationFile(jsonText, false);
+    }
+    /**
+     * Verilen dizindeki 'ikizconfs.json' yapılandırma dosyasını yükler
+     * Bu yükleme, İkiz yapılandırması + tablo yapılandırmalarını kapsar
+     * Hedef dizinde bu dosya yoksa, veyâ başarısız olunursa {@code false} döner
+     * @param path Kaynağın bulunduğu dizin
+     * @return Yükleme işlemi başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean loadSystemFromAllConfigurationsFile(String path){
+        if(path == null)
+            return false;
+        if(path.isEmpty())
+            return false;
+        String jsonText = RWService.getService().readDataAsText(path, "ikizconfs.json");
+        return loadSystemFromAllConfigurations(jsonText);
+    }
+    /**
+     * İkiz yapılandırmasını verilen dizine kaydetmek için kullanılır
+     * Bu yapılandırma dosyası sistem yeniden başlatıldığında ayarların içe
+     * aktarılması için kullanılabilir
+     * Hedef dizinde bu isimde bir dosya varsa, üzerine yazılır
+     * @param path Yapılandırma dosyası için hedef dizin
+     * @return İşlem başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean saveAllConfiguration(String path){
+        if(path == null)
+            return false;
+        if(path.isEmpty())
+            return false;
+        String content = backupAllConfs().getJSONText();// Tüm yapılandırma JSON metni
+        return RWService.getService().produceAndWriteFile(content, "ikizConfs.json", path);
+    }
+    /**
+     * Sadece İkiz yapılandırma ayarını dışa aktarmak için kullanılır
+     * Hedef dizinde 'ikizConfs.json' ismiyle yeni dosya oluşturulur
+     * Hedef dizinde bu isimde bir dosya varsa, üzerine yazılır
+     * @param path Hedef dizin
+     * @return İşlem başarılıysa {@code true}, aksi hâlde {@code false}
+     */
+    public boolean saveJustIkizConfiguration(String path){
+        if(path == null)
+            return false;
+        if(path.isEmpty())
+            return false;
+        String content = backupIkizConfs().getJSONText();// Sadece İkiz yapılandırma JSON metni
+        return RWService.getService().produceAndWriteFile(content, "ikizConfs.json", path);
     }
     //ARKAPLAN İŞLEM YÖNTEMLERİ:
     private static boolean testConnection(Cvity connectivity){
@@ -792,7 +1014,13 @@ public class IkizIdare{
             return false;
         return this.confs.getAttributesPolicy().get(strModifier);
     }
-    //ARKAPLAN İŞLEM YÖNTEMLERİ:
+    private boolean isInIkiz(String tableName){
+        for(String s : getWorkingTables()){
+            if(s.equalsIgnoreCase(tableName))
+                return true;
+        }
+        return false;
+    }
      private String getTypeNameForDB(String typeName){// Java veri tipini alır; seçilen veritabanı için uygun veri tipini döndürür
         String dType = mapDataTypeToDBDataType.get(typeName);
         return (dType != null ? dType : "");
@@ -824,10 +1052,16 @@ public class IkizIdare{
     private void callIsntCompleted(String callFrom, Object entity, String tableName){
         System.out.println(callFrom + " yöntemi çalıştırılırken oluştu;\n" + tableName + "isimli nesneye erişim sağlanamadı;\n");
     }
-    private <T> T assignAttributes(Class<T> cls, Map<String, Object> mapAttributes){//Hatâlardan sonra nasıl idâre edildiğiyle ilgili bir şey yok
-        mapAttributes = convertJSONTextToMapOfVariables(mapAttributes, extractTableName(cls));
-        T instance = Reflector.getService().pruduceNewInjectedObject(cls, mapAttributes, this.confs.codingStyleForGetterSetter);
-        return instance;
+    private <T> T assignAttributes(Class<T> cls, Map<String, Object> mapAttributes, boolean useGivenInstance, T instance){//Hatâlardan sonra nasıl idâre edildiğiyle ilgili bir şey yok
+        mapAttributes = convertJSONTextToMapOfVariables(mapAttributes, cls.getSimpleName());
+        T injected = null;
+        if(useGivenInstance && instance != null){
+            injected = Reflector.getService().injectData(instance, mapAttributes, this.confs.codingStyleForGetterSetter);
+        }
+        else{
+            injected = Reflector.getService().pruduceNewInjectedObject(cls, mapAttributes, this.confs.codingStyleForGetterSetter);
+        }
+        return injected;
     }
     private Map<String, Object> convertJSONTextToMapOfVariables(Map<String, Object> map, String tableName){
         if(map == null)
@@ -861,38 +1095,6 @@ public class IkizIdare{
             // Sonraki sürümlerde kullanıcı tanımlı veri tipleri için de dönüşüm eklenmesi gerekebilir.
         }
         return map;
-    }
-    private List<Object> getDataFromBuffer(String tableName){
-        if(!this.confs.bufferMode){
-            System.err.println("veri saklama modu pasif durumda");
-            //Hatâ - uyarı fırlat
-            return null;
-        }
-        if(bufferTables == null){
-            System.err.println("Veri saklama alanı boş");
-            //Hatâ - uyarı fırlat
-            return null;
-        }
-        //.;.
-        return bufferTables.get(tableName);
-    }
-    private void refreshDataOnLocalArea(List data){//Veri saklama modu (bufferMode) etkin ise verileri verilerin saklandığı yerel alandaki ilgili yeri güncelle
-        if(!this.confs.bufferMode)
-            return;
-        String tableName = data.getClass().getName();
-        System.out.println("data.getClass().getName");
-        getBufferTables().put(tableName, data);
-    }
-    private boolean removeDataOnLocalArea(Object[] data){//Veri saklama modu açıkken bir tablo silindiğinde eğer o tablodaki kayıtlar saklanıyor idiyse, onları sil
-        if(!this.confs.bufferMode)
-            return false;
-        String tableName = data.getClass().getName();
-        if(getBufferTables().get(tableName) == null){
-            System.err.println("İlgili tablo verisi veri saklama alanına eklenmemiş");
-            return false;
-        }
-        getBufferTables().remove(tableName);
-        return true;
     }
     private boolean isBasicType(Class type){
         return isBasicType(type.getName());
@@ -933,76 +1135,7 @@ public class IkizIdare{
         }
         return res;
     }
-    private boolean canTakeableThisGenericTypeOfField(String genericTypeName){// Kullanılmıyor
-        if(genericTypeName == null)
-            return false;
-        if(genericTypeName.isEmpty())
-            return false;
-        return isBasicType(genericTypeName);
-    }
-    private boolean confirmTableInDB(String tableName){// Büyük küçük harf hassas değil
-        try{
-            String sql = HelperForHelperForDBType.getHelper(this.connectivity.getDBType()).getSentenceForShowTables();
-            ResultSet rs = connectivity.getConnext().createStatement().executeQuery(sql);
-            if(rs == null)
-                return false;
-            while(rs.next()){
-                if(rs.getString(1).equalsIgnoreCase(tableName))
-                    return true;
-            }
-        }
-        catch(SQLException exc){
-            System.err.println("Hatâ (confirmTableInDB)");
-        }
-        return false;
-    }
-    private Class loadAndGetClass(String typeName){
-        Class cls = null;
-        switch(typeName){
-            case "int" :{
-                cls = int.class;
-                break;
-            }
-            case "double" :{
-                cls = double.class;
-                break;
-            }
-            case "float" :{
-                cls = float.class;
-                break;
-            }
-            case "char" :{
-                cls = char.class;
-                break;
-            }
-            case "byte" :{
-                cls = byte.class;
-                break;
-            }
-            case "boolean" :{
-                cls = boolean.class;
-                break;
-            }
-            case "short" :{
-                cls = short.class;
-                break;
-            }
-            case "long" :{
-                cls = short.class;
-                break;
-            }
-        }
-        if(cls != null)
-            return cls;
-        try{
-            cls = ClassLoader.getSystemClassLoader().loadClass(typeName);
-        }
-        catch(ClassNotFoundException exc){
-            System.err.println("Yüklenmek istenen sınıf bulunamadı : " + exc.toString());
-        }
-        return cls;
-    }
-    public/*private yap*/ String getJSONStringFromObject(Object obj){// Verilen nesne için JSON String üret; JSON'dan bir farkı var: anahtarlar String olmak zorunda değil
+    private String getJSONStringFromObject(Object obj){// Verilen nesne için JSON String üret; JSON'dan bir farkı var: anahtarlar String olmak zorunda değil
         if(obj == null)
             return null;
         Class dType = obj.getClass();
@@ -1014,27 +1147,26 @@ public class IkizIdare{
         System.out.println("Üretilen metîn:\n" + result);
         return result;
     }
-    public <T, V> HashMap<T, V> produceMap(T[] columnNames, V[] columnTypes){
-        HashMap<T, V> value = new HashMap<T, V>();
-        for(int sayac = 0; sayac < columnNames.length; sayac++){
-            if(columnTypes[sayac] != null){
-                value.put(columnNames[sayac], columnTypes[sayac]);
-            }
-        }
-        return value;
-    }
-    public static void printMap(Map map){
-        if(map == null){
-            System.out.println("null");
-            return;
-        }
-        for(Object key : map.keySet()){
-            System.out.println(key + " : " + map.get(key));
-        }
-    }
     private Object getValueOfField(Object entity, Field field){
+        if(entity == null || field == null)
+            return null;
         Map<String, Object> result = Reflector.getService().getValueOfFields(entity, new Field[]{field}, this.confs.codingStyleForGetterSetter);
         return (result != null ? result.get(field.getName()) : null);
+    }
+    private Object getValueOfField(Object entity, String fieldName){
+        if(entity == null || fieldName == null)
+            return null;
+        if(fieldName.isEmpty())
+            return null;
+        Class<?> cls = entity.getClass();
+        try{
+            Field fl = cls.getDeclaredField(fieldName);
+            return getValueOfField(entity, fl);
+        }
+        catch(NoSuchFieldException | SecurityException exc){
+            System.err.println("İlgili alan bulunamadı : " + exc.toString());
+            return null;
+        }
     }
     private Object getValueOfFieldAsConverted(Object entity, Field field){
         List<String> list = new ArrayList<String>();
@@ -1074,35 +1206,264 @@ public class IkizIdare{
         }
         return pureValues;
     }
-    public boolean loadSystemConfsFromAnalyzingDB(){
-        // İkiz yapılandırma tablosunun veri olarak tespîtinin önlenmesini kodla
-//        String dbName = this.connectivity.getSchemaName();
-        List<String> tables = dbAccess.getTableNames();
-        if(tables == null){
-            System.err.println("Veritabanı analizi başarısız oldu.");
-            return false;
+    private <T> List<T> getDataByFieldMain(Class<T> target, String fieldName, Object valueForTheGivenField, boolean lookForOneResult){
+        if(target == null || fieldName == null)
+            return null;
+        String tableName = target.getSimpleName();
+        TableMetadata md = getMetadataOfTable(tableName);
+        boolean isInIkiz = (md != null);// Hedef tablo İkiz'de kayıtlı mı?
+        List<T> values = null;
+        if(this.confs.bufferMode && isInIkiz){// Önbellek modu etkin ise;
+//            getIkizMunferid().getCurrentObjectWithSpecifiedField()// Alana göre indeksleme özelliği gelirse, burası değişmeli
+            List<T> inBuffer = (List<T>) getBufferTables().get(target.getSimpleName());
+            if(inBuffer != null && inBuffer.size() > 0){
+                values = new ArrayList<T>();
+                for(T row : inBuffer){
+                    if(row == null)
+                        continue;
+                    Object valueInTheGivenField = getValueOfField(row, fieldName);
+                    if(valueInTheGivenField.equals(valueForTheGivenField)){
+                        values.add(row);
+                        if(lookForOneResult)
+                            break;
+                    }
+                }
+                if(values.size() > 0){
+                    return values;
+                }
+            }
         }
-        getWorkingTables().addAll(tables);// İşlem - 1 : Çalışılan veritabanı isimlerini kaydet
-        // İşlem - 2 : Tablo önbilgilerini tespit et ve kaydet;
-        for(String tbl : getWorkingTables()){
-            List<String> fieldNames = dbAccess.getFieldNames(tbl);
-            Class cls = getSuitableClassOnTheList(tbl, fieldNames);
-            HashMap<String, Field> mapOfTargets = extractMapOfTargetFields(fieldNames, cls);
-            TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls);
-            TableMetadata md = new TableMetadata(cls, tblConfs, mapOfTargets);
-            getMetadataOfTables().put(cls.getSimpleName(), md);// Ayarları İkiz'e aktar
+        try{
+            if((isInIkiz && md.getMapOfTargetFields().get(fieldName) != null)){
+                List<Map<String, Object>> dataOfRecords = dbAccess.getDataForOneWhereCondition(tableName, null, fieldName, valueForTheGivenField);
+//                System.out.println("gelen satır sayısı : " + dataOfRecords.size());
+                values = new ArrayList<T>();
+                List<Field> specialFields = new ArrayList<Field>();
+                if((isInIkiz && this.confs.getPolicyForListArrayMapFields() == Confs.POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON)){
+                    Map<String, Field> targetFields = (isInIkiz ? md.getMapOfTargetFields() : convertListOfFieldsToMapOfFields(Reflector.getService().getSpecifiedFields(target, null)));
+                    for(String s : targetFields.keySet()){// Liste - Map - Dizi alanlarını keşfet
+                        Field fl = targetFields.get(s);
+                        Map<String, Boolean> analysis = isListOrMapOrArray(fl.getType());
+                        if(analysis.get("result")){
+                            specialFields.add(fl);
+                        }
+                    }
+                }
+                for(Map<String, Object> row : dataOfRecords){
+                    if((isInIkiz && this.confs.getPolicyForListArrayMapFields() == Confs.POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON)){
+                        for(Field special : specialFields){
+                            Object specialData = row.get(special.getName());// Ham veriyi (JSON metni) al
+                            if(specialData != null){
+                                row.put(special.getName(), convertJSONtoTarget(String.valueOf(specialData), special));// Hedef tipe çevir
+                            }
+                        }
+                    }
+                    boolean isCouldBeMunferid = false;
+                    if(this.confs.bufferMode){
+                        isCouldBeMunferid = isCouldBeMunferid(target);
+                    }
+                    T instance = getSuitableInstance(target, row);
+                    values.add(Reflector.getService().injectData(instance, row, this.confs.codingStyleForGetterSetter));
+                    if(isCouldBeMunferid){
+                        String primaryKeyField = getMetadataOfTable(tableName).getConfs().getPrimaryKey();
+                        if(primaryKeyField != null)
+                            getIkizMunferid().putToHashed(target.getSimpleName(), row.get(primaryKeyField), instance);
+                    }
+                }
+            }
         }
-        return true;
+        catch(NullPointerException exc){
+            System.err.println("NullPointer exc : " + exc.toString());
+        }
+        return values;
     }
-    /**
-     * Yüklenen sınıf listesi içerisinden verilen basit isimdeki sınıfı getirir
-     * Aynı isimde birden fazla sınıf varsa, verilen alan isimlerine bakılır
-     * Bu durumda verilen alan isimleriyle en çok uyuşan sınıf döndürülür
-     * 
-     * @param simpleNameOfClass
-     * @param fieldNames
-     * @return 
-     */
+    private <T> List<Object> getColumnValuesMain(Class<?> target, String field, Class<T> classOfField, boolean cast){
+        if(field == null)
+            return null;
+        List<String> names = new ArrayList<String>();
+        names.add(field);
+        Object result = getValuesFromTable(target, names);
+        if(result != null){
+            List<Map<String, Object>> asListOfCast = ((List<Map<String, Object>>) result);
+            List<T> values = new ArrayList<T>();
+            List<Object> notCastedValues = new ArrayList<Object>();
+            for(Map row : asListOfCast){
+                Object fieldValue = row.values().iterator().next();
+                if(!cast){// Veri dönüştürülmeyecekse dönüştürmeye çalışma
+                    notCastedValues.add(fieldValue);
+                    continue;
+                }
+                if(fieldValue != null){
+                    try{
+                        T casted = classOfField.cast(fieldValue);
+                        values.add(casted);
+                    }
+                    catch(ClassCastException exc){
+                        System.err.println("exc. : : " + exc.toString());
+                    }
+                }
+            }
+            if(cast)
+                return (List<Object>) values;
+            else
+                return notCastedValues;
+        }
+        return null;
+    }
+    private <T> boolean isCouldBeMunferid(Class<T> target){
+        return getIkizMunferid().isCouldGettingObjectWithPrimaryKey(target);// Veri münferid olabilir mi (sadece birincil anahtara bakılarak)?
+    }
+    private <T> T getSuitableInstance(Class<T> target, Map<String, Object> valuesOfAttributes){// İstenen sınıfın elemanı önbellekte varsa o döndürülür; aksi hâlde yeni bir örnek döndürülür
+        T instance = null;
+        if(this.confs.bufferMode){
+            if(isCouldBeMunferid(target)){
+                String primaryKeyField = getMetadataOfTable(target.getSimpleName()).getConfs().getPrimaryKey();
+                instance = getIkizMunferid().getCurrentObjectWithPrimaryKey(target, valuesOfAttributes.get(primaryKeyField));
+            }
+        }
+        if(instance == null){
+            Constructor<T> noParamCs = Reflector.getService().findConstructorForNoParameter(target);
+            if(noParamCs != null){
+                try{
+                    instance = noParamCs.newInstance(null);
+                }
+                catch(InstantiationException ex){
+                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
+                }
+                catch(IllegalAccessException ex){
+                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
+                }
+                catch(IllegalArgumentException ex){
+                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
+                }
+                catch(InvocationTargetException ex){
+                    System.err.println("Parametresiz yöntemle değişken üretilirken hatâ :\n\t-->   " + ex.getMessage());
+                }
+            }
+        }
+        return instance;
+    }
+    private <T> Object getDataMain(Class<T> target, List<String> fieldNames, boolean getAsObject, boolean forcePullFromDB){//Tablodaki verilerin büyük olması durumunda verilerin tamâmını almak için bunları bigint gibi sayılarda tutmalıyız
+        if(target == null)
+            return null;
+        if(fieldNames != null)
+            if(fieldNames.isEmpty())
+                return null;
+        String tableName = target.getSimpleName();
+        boolean isInIkiz = !isInIkiz(target);
+        if(this.confs.bufferMode && !forcePullFromDB && isInIkiz){// Bu şart kaldırıldı : && getIkizMunferid().isIndexedBefore(target)
+            if(fieldNames == null){// Bu şart, parçalı veri çekme durumunda önbellekten veri çekilmemesini sağlamak için var
+                List<? extends Object> data = getBufferTables().get(tableName);
+                if(data != null)
+                    return data;
+            }
+        }
+        if(fieldNames == null){// Eğer sütun isimleri verilmediyse tüm sütun isimlerini al
+            fieldNames = new ArrayList<String>();
+            if(isInIkiz){// İkiz'de kayıtlı bir tabloysa, kaydedilen alan isimlerini al
+                for(String s : getMapOfTargetFields(tableName).keySet()){
+                    fieldNames.add(s);
+                }
+            }
+            else{// İkiz'de kayıtlı olmayan tablodan veri çekilmek isteniyorsa;
+                Field[] fields = null;
+                try{
+                    fields = target.getDeclaredFields();
+                    if(fields == null){
+                        // İkiz'e kayıtlı olmayan tablonun alanları alınamadığından işlem sonlandırılıyor
+                        return null;
+                    }
+                    for(Field fl : fields){
+                        fieldNames.add(fl.getName());
+                    }
+                }
+                catch(SecurityException exc){
+                    System.err.println("Verilen tablonun alanları alınırken güvenlik hâtasıyla karşılaşıldı");
+                    return null;
+                }
+            }
+        }
+        boolean keepGo = dbAccess.checkIsTableInDB(tableName);// Önce tablonun olup, olmadığına bakılıyor; bu, gereksiz bir işlem sayılabilir. Performansı arttırmak için sorgudan dönen hatâ sonucunu ele al
+        if(!keepGo){
+            System.err.println("İlgili tablo veritabanında olmadığından işlem sonlandırıldı!");
+            return null;
+        }
+        List<Map<String, Object>> liDataOfObjectsBeforeInstantiation = null;
+        if(getMapOfTargetFields(tableName) == null){// İkiz'e kaydedilmemiş bir veritabanı nesnesi için gelindiyse;
+            liDataOfObjectsBeforeInstantiation = dbAccess.getData(tableName);
+            if(!getAsObject)
+                return liDataOfObjectsBeforeInstantiation;
+            List<T> dataAsObject = new ArrayList<T>();
+            for(Map<String, Object> mapAttributesOfRow : liDataOfObjectsBeforeInstantiation){
+                T ready = assignAttributes(target, mapAttributesOfRow, false, null);
+                dataAsObject.add(ready);
+            }
+            return dataAsObject;
+        }
+        else
+            liDataOfObjectsBeforeInstantiation = dbAccess.getData(tableName, fieldNames);
+        if(!getAsObject)
+            return liDataOfObjectsBeforeInstantiation;
+        // Aşağı kısım:
+        // Birincil anahtarı olan verilerde, verinin uygulama içerisinde
+        // tek nesne (münferid)biçiminde olmasını sağlamak için;..:
+        boolean isCouldBeMunferid = isCouldBeMunferid(target);// Veri münferid olabilir mi?
+        // PERFORMANS İÇİN YUKARIDAKİ SATIR YERİNE DAHA EVVEL IkizMunferid'e dâhil olup, olmadığı sorgulanabilir
+        
+        Constructor[] css = target.getConstructors();
+        Constructor<T> noParamCs = null;
+        for(Constructor cs : css){
+            if(cs.getParameterCount() == 0){
+                noParamCs = cs;
+                break;
+            }
+        }
+        List<T> liData = new ArrayList<T>();
+        String primaryKey = null;
+        HashMap<Object, Object> hashed = null;// Verilere münferiden erişebilmek için gereken 'hash' haritası
+        if(isCouldBeMunferid){
+            primaryKey = getMetadataOfTable(tableName).getConfs().getPrimaryKey();
+            hashed = new HashMap<Object, Object>();
+        }
+        //Parametresiz yapıcı fonksiyonla elemanları üret:
+        if(noParamCs != null){
+            for(Map<String, Object> mapOfAttributesOfRow : liDataOfObjectsBeforeInstantiation){
+                T instance = getSuitableInstance(target, mapOfAttributesOfRow);
+                if(instance == null)// Sınıfın yeni bir örneği oluşturulamadıysa;
+                    return null;
+                T ready = assignAttributes(target, mapOfAttributesOfRow, true, instance);
+                liData.add(ready);// Testlerden sonra, yukarıdaki satırla birleştir
+                if(isCouldBeMunferid){// Veri, münferid olarak saklanabiliyorsa;
+                    Object key = mapOfAttributesOfRow.get(primaryKey);
+                    if(key != null)
+                        hashed.put(key, ready);
+                }
+                // ESKİ YÖNTEM, testlerden sonra kaldır : liData.add(assignAttributes(target, mapOfAttributesOfRow));// Verileri ilgili alanlara zerk et
+            }
+//            System.out.println("Üretilen değişkenin sınıf ismi : " + data[0].getClass().getName());
+//            System.out.println("Veri tipi dönüşümü yapılmış değişkenin sınıf ismi : " + target.cast(data[0]).getClass().getName());
+            if(this.confs.bufferMode){// Veriyi önbelleğe yazmalısın, fakat IkizMunferid açısından gereken var mı vs. kontrol et
+                addToBufferTables(tableName, hashed, liData);
+            }
+            return liData;
+        }
+        //Eğer parametresiz yapıcı fonksiyon yoksa:
+        //.;.
+        if(css[0].getParameterCount() != 0){
+            System.err.println("Bu sürüm parametresiz yapıcı yöntemle çalışmayı desteklemiyor! Hedef "
+                + tableName + " sınıfının parametresiz kurucu yöntemi olmadığından işlem sonlandırılıyor.");
+            return null;
+        }
+        // Sonraki sürümde istenen:
+//        if(this.confs.workWithNonParameterConstructor && css[0].getParameterCount() != 0){
+//            System.out.println("Parametresiz yapıcı yöntemle çalışma etkin; lâkin sınıfın böyle bir kurucu yöntemi yok!");
+//            return null;
+//        }
+        //.;.
+        // Uygun yapıcı yöntemi seç, nesneleri oluştur ve ata
+        //GEÇİCİ:
+        return null;
+    }
     private Class getSuitableClassOnTheList(String simpleNameOfClass, List<String> fieldNames){// Aynı isimde birden fazla sınıf varsa, uygun olanını getirmek için..
         if(loadedClasses == null)
             loadedClasses = Reflector.getService().getClassesOnTheAppPath();
@@ -1169,10 +1530,6 @@ public class IkizIdare{
         }
         return value;
     }
-    /**
-     * Veritabanıyla bağlantı kurup, tablo yapılandırmasını çıkarır ve döndürür
-     * @param targetClass Yapılandırması istenen tablonun uygulamadaki sınıfı
-     */
     private TableConfiguration getConfiguresOfTableFromDB(Class targetClass){
         if(targetClass == null)
             return null;
@@ -1234,6 +1591,96 @@ public class IkizIdare{
         }
         return value;
     }
+    private <T> void addToBufferTables(String tableName, HashMap<Object, Object> mapOfPrimaryKeyToObject, List<T> data){
+        getBufferTables().put(tableName, data);
+        // Zamân damgası bas
+        getIkizMunferid().assingToHashed(getIkizMunferid(), tableName, mapOfPrimaryKeyToObject);
+    }
+    private JSONObject backupAllConfs(){
+        JSONObject jsonRoot = new JSONObject();
+        JSONObject jsonTableConfs = new JSONObject();
+        for(TableMetadata md : getMetadataOfTables().values()){
+            JSONObject metadata = new JSONObject();
+            String targetClass = md.getTargetClass().getName();
+            metadata.addString("targetClass", targetClass);
+            JSONObject jsonCurrentTableConfs = new JSONObject(md.getConfs().exportConfigurations());
+            metadata.addJSONObject("tableConfiguration", jsonCurrentTableConfs);
+            ArrayList<String> liFieldNames = new ArrayList<String>();
+            for(String s : md.getMapOfTargetFields().keySet()){
+                liFieldNames.add(s);
+            }
+            metadata.addJSONArray("targetFieldNames", new JSONArray(liFieldNames));
+            jsonTableConfs.addJSONObject(md.getTargetClass().getSimpleName(), metadata);
+        }
+        jsonRoot.addJSONObject("tableConfigurations", jsonTableConfs);// Tablo yapılandırmalarını ekle
+        jsonRoot.addJSONObject("IkizConfigurations", backupIkizConfs());// İkiz yapılandırmasını ekle
+        return jsonRoot;
+    }
+    private JSONObject backupIkizConfs(){
+        JSONObject jsonIkizConfs = new JSONObject();
+        jsonIkizConfs.addBoolean("alwaysContinue", this.confs.alwaysContinue);
+        jsonIkizConfs.addJSONObject("attributesPolicy", new JSONObject(this.confs.getAttributesPolicy()));
+//            jsonIkizConfs.addBoolean("workWithNonParameterConstructor", this.confs.workWithNonParameterConstructor);
+        // updateModeOfTables eklenecek
+        jsonIkizConfs.addBoolean("bufferMode", this.confs.bufferMode);
+        jsonIkizConfs.addString("policyForListArrayMapFields", this.confs.getPolicyForListArrayMapFields().toString());
+//            jsonIkizConfs.addString("policyForListUserDefinedClasses", this.confs.getPolicyForUserDefinedClasses().toString());
+        jsonIkizConfs.addString("codingStyleForGetterSetter", this.confs.codingStyleForGetterSetter.toString());
+        return jsonIkizConfs;
+    }
+    private boolean loadSystemFromConfigurationFile(String jsonText, boolean loadJustIkizConfs){
+        try{
+            Map<String, Object> raw = JSONReader.getService().readJSONObject(jsonText);
+            JSONObject root = new JSONObject(raw);
+            JSONObject jIkizConfs = root.getJSONObject("IkizConfigurations");
+            JSONObject jTableConfs = root.getJSONObject("tableConfigurations");
+            Confs produced = jIkizConfs.getThisObjectAsTargetType(Confs.class, Reflector.CODING_STYLE.CAMEL_CASE);
+            if(produced != null){
+                this.confs = produced;
+                if(loadJustIkizConfs && jTableConfs != null){
+                    for(Map<String, Object> current : jTableConfs){
+                        String key = current.keySet().iterator().next();
+                        TableMetadata md = extractTableMetadataFromJSON(key, (Map<String, Object>) current.get(key));
+                        if(md == null)
+                            return false;
+                        getMetadataOfTables().put(key, md);
+                        getWorkingTables().add(key);
+                    }
+                }
+                return true;
+            }
+        }
+        catch(Exception exc){
+            System.err.println("Sistem yüklemesi başarısız oldu!!");
+        }
+        return false;
+    }
+    private TableMetadata extractTableMetadataFromJSON(String tableName, Map<String, Object> data){
+        TableMetadata md = null;
+        try{
+            Class targetClass = Class.forName((String) data.get("targetClass"));
+            TableConfiguration confsAsObj = new TableConfiguration(targetClass);// TableConfiguration nesnesini oluştur:
+            confsAsObj.importConfigurations((Map<String, Object>) data.get("tableConfiguration"));
+            List<Field> targetFields = Reflector.getService().getSpecifiedFields(targetClass, (List<String>) data.get("targetFieldNames"));// Hedef özelliklerin listesini al
+            Map<String, Field> mapOfTargetFields = convertListOfFieldsToMapOfFields(targetFields);
+            mapOfTargetFields = (mapOfTargetFields == null ? new HashMap<String, Field>() : mapOfTargetFields);
+            md = new TableMetadata(targetClass, confsAsObj, mapOfTargetFields);
+            return md;
+        }
+        catch(ClassNotFoundException | NullPointerException exc){
+            System.err.println("Veri içe aktarılamadı!!");
+        }
+        return md;
+    }
+    private Map<String, Field> convertListOfFieldsToMapOfFields(List<Field> fields){
+        if(fields == null)
+            return null;
+        Map<String, Field> mapOf = new HashMap<String, Field>();
+        for(Field fl : fields){
+            mapOf.put(fl.getName(), fl);
+        }
+        return mapOf;
+    }
 
 //ERİŞİM YÖNTEMLERİ:
     public static IkizIdare getIkizIdare(){
@@ -1260,6 +1707,15 @@ public class IkizIdare{
         TableMetadata md = getMetadataOfTables().get(tableName);
         return (md == null ? null : md.getMapOfTargetFields());
     }
+    protected HashMap<String, TableMetadata> getMetadataOfTables(IkizTeamPlayer player){
+        if(player.getClass().equals(IkizMunferid.class)){
+            if(getIkizMunferid() != null){
+                if(player == ikizMunferid)
+                    return getMetadataOfTables();
+            }
+        }
+        return null;
+    }
     private HashMap<String, TableMetadata> getMetadataOfTables(){
         if(metadataOfTables == null)
             metadataOfTables = new HashMap<String, TableMetadata>();
@@ -1268,10 +1724,17 @@ public class IkizIdare{
     private TableMetadata getMetadataOfTable(String tableName){
         return getMetadataOfTables().get(tableName);
     }
-    private HashMap<String, List<Object>> getBufferTables(){
+    private HashMap<String, List<? extends Object>> getBufferTables(){
         if(bufferTables == null)
-            bufferTables = new HashMap<String, List<Object>>();
+            bufferTables = new HashMap<String, List<? extends Object>>();
         return bufferTables;
+    }
+    protected HashMap<String, List<? extends Object>> getBufferTables(IkizTeamPlayer player){
+        if(player == null)
+            return null;
+        if(player != this.getIkizMunferid())
+            return null;
+        return getBufferTables();
     }
     private HashMap<String, Date> getLastUpdateTimeOfTables(){
         if(lastUpdateTimeOfTables == null)
@@ -1282,5 +1745,11 @@ public class IkizIdare{
         if(workingTables == null)
             workingTables = new ArrayList<String>();
         return workingTables;
+    }
+    private IkizMunferid getIkizMunferid(){
+        if(ikizMunferid == null){
+            ikizMunferid = new IkizMunferid(this);
+        }
+        return ikizMunferid;
     }
 }

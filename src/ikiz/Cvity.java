@@ -1,5 +1,4 @@
 package ikiz;
-//Sistem şu anda sadece MySQL ile çalışacak bi iznillâh..
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -8,6 +7,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 
+/**
+ * Veritabanı bağlantı işlemlerinin ve veritabanına özgü ayarların kolay erişimi
+ * için kullanışlı bir sınıf
+ * @author Mehmet Akif SOLAK
+ */
 public class Cvity{
     private int portNumber;
     private String hostName;
@@ -16,12 +20,22 @@ public class Cvity{
     private Connection connext;
     private String schemaName;
     private DBType dbType;
+    /**
+     * Veritabanı tipini belirten bir seçili değer listesi (@code enum)'dir.
+     */
     public enum DBType{
         MYSQL,
         MSSQL,
         POSTGRESQL,
         SQLITE
     }
+    /**
+     * Sınıf örneği yapıcı fonksiyonu
+     * @param connext Veritabanı bağlantı nesnesi
+     * @param userName Kullanıcı adı
+     * @param password Kullanıcı şifresi
+     * @param schemaName 
+     */
     public Cvity(Connection connext, String userName, String password, String schemaName){
         this.connext = connext;
         this.schemaName = schemaName;
@@ -32,9 +46,30 @@ public class Cvity{
 
 //İŞLEM YÖNTEMLERİ:
     //SINIF YÖNTEMLERİ (ÖN YÖNTEMLER):
+    /**
+     * Sunucu bazlı veritabanlarında veritabanı sunucusuna bağlantıyı oluşturur
+     * @param userName Veritabanı kullanıcı adı
+     * @param password İlgili kullanıcının şifresi
+     * @param hostname Sunucu alan ismi
+     * @param portNumber Veritabanı sunucusunun yayım yaptığı port numarası
+     * @param dbType Veritabanı sunucu tipi
+     * @return Oluşturulan bağlantı nesnesi veyâ {@code null}
+     */
     public static Connection connectBase(String userName, String password, String hostname, int portNumber, Cvity.DBType dbType){
         return Cvity.connectDB(userName, password, hostname, portNumber, "", dbType);
     }
+    /**
+     * Verilen bilgilere göre hedef veritabanına bağlanır, sunucu bazlı olmayan
+     * {@code Cvity.DBType.SQLITE} veritabanı için {@code dbName} parametresinin
+     * hedef dosyanın adresini gösterecek şekilde verilmesi kâfîdir
+     * @param userName Veritabanı kullanıcı adı
+     * @param password İlgili kullanıcının şifresi
+     * @param hostName Sunucu alan ismi
+     * @param portNumber Veritabanı sunucusunun yayım yaptığı port numarası
+     * @param dbName Veritabanı ismi
+     * @param dbType Veritabanı sunucu tipi
+     * @return Oluşturulan bağlantı nesnesi veyâ {@code null}
+     */
     public static Connection connectDB(String userName, String password, String hostName, int portNumber, String dbName, Cvity.DBType dbType){
         Connection cn = null;
         if(dbType == null){
@@ -62,10 +97,14 @@ public class Cvity{
             //System.err.println("\'connectDB\' yöntemi çalıştırılırken hatâ : " +exc.toString());
             showErrorMessage(exc);
         }
-        if(cn == null)
-            return null;
         return cn;
     }
+    /**
+     * Verilen bağlantı kullanılarak verilen isimde bir veritabanı oluşturulur
+     * @param connection Veritabanı bağlantısı
+     * @param dbName Oluşturulmak istenen veritabanının ismi
+     * @return İşlem başarılıysa {@code true}, değilse {@code false}
+     */
     public static boolean createDB(Connection connection, String dbName){
         if(connection == null)
             return false;
@@ -87,10 +126,19 @@ public class Cvity{
         }
         return false;
     }
+    /**
+     * Verilen bağlantı kullanılarak veritabanındaki tablo isimleri döndürülür
+     * Eğer veritabanında hiçbir tablo yoksa bir adet boş metîn içeren 
+     * {@code String[]} dizisi döndürülür, hatâ alınırsa {@code null} döndürülür
+     * @param connection Veritabanı bağlantısı
+     * @param type Veritabanı çeşidi
+     * @return Veritabanı tablo isimleri, {@code null} veyâ tek elemanlı boş
+     * metîn dizisi
+     */
     public static String[] getTableNamesOnDB(Connection connection, Cvity.DBType type){
         if(connection == null)
             return null;
-        try {
+        try{
             Statement testStatement = connection.createStatement();// Şu kombinasyon SQL Server'da desteklenmiyormuş : Rconnext.getMetaData().getDatabaseProductName()
             ArrayList<String> liTableNames = new ArrayList<>();
             String order = HelperForHelperForDBType.getHelper(type).getSentenceForShowTables();
@@ -114,38 +162,65 @@ public class Cvity{
     public static void showErrorMessage(SQLException DBException){//BURASI GELİŞTİRİLEBİLİR, HATALAR DAHA İYİ YÖNETİLEBİLİR Bİ İZNİLLÂH
         System.out.println("Hatâ kodu : " + DBException.getErrorCode() + "\n" + DBException.getMessage());
     }
+    /**
+     * Verilen bağlantı üzerinden veritabanı çeşidini {@code CVity.DBTYpe}
+     * biçiminde döndürür
+     * Desteklenmeyen veritabanı için {@code null} döndürülür
+     * @param connext Veritabanı bağlantısı
+     * @return {@code CVity.DBTYpe} nesnesi veyâ {@code null}
+     */
     public static Cvity.DBType detectDBType(Connection connext){
+        DBType type = null;
         try{
-            if(connext.getMetaData().getDatabaseProductName().equals("MySQL"))
-                return DBType.MYSQL;
-            if(connext.getMetaData().getDatabaseProductName().equals("PostgreSQL"))// Teyyit edilecek
-                return DBType.POSTGRESQL;
-            if(connext.getMetaData().getDatabaseProductName().equals("Microsoft SQL Server")){// Teyyit edilecek
-                return DBType.MSSQL;}
+            type = HelperForHelperForDBType.getDBTypeByProductName(connext.getMetaData().getDatabaseProductName());
         }
         catch(SQLException exc){
             System.out.println("Veritabanı tipi tespit edilirken hatâ oluştu : " + exc.toString());
         }
-        return null;
+        return type;
     }
-
+    /**
+     * Veritabanı işlemleri için kılavuz mâhiyetindeki veritabanı yardımcı
+     * sınıfını döndürür
+     * @return {@code HelperForDBType} nesnesi
+     */
     public HelperForDBType getHelperForDBType(){
         return HelperForHelperForDBType.getHelper(this.dbType);
     }
 
 //ERİŞİM YÖNTEMLERİ:
+    /**
+     * Sunucu bazlı veritabanlarında bağlanılan port numarasını verir
+     * @return Sunucuda bağlanılan port numarası
+     */
     public int getPortNumber(){
         return portNumber;
     }
+    /**
+     * Sunucu bazlı veritabanlarında bağlanılan sunucunun ismini verir
+     * @return Bağlanılan sunucunun ismi
+     */
     public String getHostName(){
         return hostName;
     }
-    public Connection getConnext(){
+    /**
+     * Bağlantının kendisini ifâde eder. İşlemler bu bağlantı üzerinden yapılır
+     * @return Veritabanı bağlantısı
+     */
+    public /*protected yap*/ Connection getConnext(){
         return connext;
     }
+    /**
+     * Bağlanılan veritabanı tablo ismini verir
+     * @return Tablo ismi
+     */
     public String getSchemaName(){
         return schemaName;
     }
+    /**
+     * Veritabanının çeşidini simgeleyen {@code Cvity.DBTYpe} değeri verilir
+     * @return Bağlanılan veritabanı çeşidi
+     */
     public Cvity.DBType getDBType(){
         return dbType;
     }

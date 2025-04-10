@@ -12,19 +12,19 @@ public class HelperForPostgreSQL implements HelperForDBType{
     }
     @Override
     public String getConnectionString(String hostName, int portNumber){
-        return "jdbc:postgresql://" + hostName + ":" + portNumber;
+        return "jdbc:postgresql://" + hostName + ":" + portNumber + "/";
     }
     @Override
     public String getConnectionString(String hostName, int portNumber, String dbName){
         return "jdbc:postgresql://" + hostName + ":" + portNumber + "/" + dbName;
     }
     @Override
-    public char getStartSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
-        return '`';
+    public Character getStartSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
+        return '$';
     }
     @Override
-    public char getEndSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
-        return '`';
+    public Character getEndSymbolOfName(){// BURASINA BAKILIP, DEĞİŞTİR!
+        return '$';
     }
     @Override
     public HashMap<String, String> getMapOfDataTypeToDBDataType(){
@@ -66,5 +66,13 @@ public class HelperForPostgreSQL implements HelperForDBType{
     @Override
     public String getDataTypeNameForJSON(){
         return "JSON";
+    }
+    @Override
+    public String getDataTypeNameForEnum(){
+        return "ENUM";
+    }
+    @Override
+    public String getDatabaseProductName(){
+        return "PostgreSQL";
     }
 }
