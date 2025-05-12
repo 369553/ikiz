@@ -30,12 +30,12 @@ public class IkizMunferid implements IkizTeamPlayer{
     //ARKAPLAN İŞLEM YÖNTEMLERİ:
     /**
      * İndekslenmek üzere veri girişi bu yöntemle yapılır
-     * Veriler {<birincil anahtar, nesne>} biçiminde olmalıdır
+     * Veriler (birincil anahtar, nesne) biçiminde olmalıdır
      * Güvenlik amacıyla verilen {@code IkizMunferid} nesnesi bu nesneye eşitse
      * işlem yapılır, aksi hâlde yapılmaz
      * @param ikizMunferid İşlemin uygulanacağı {@code IkizMunferid} nesnesi
      * @param tableName Tablo ismi
-     * @param mapOfPrimaryKeyToObject Veriler, birincil anahtar -> nesne
+     * @param mapOfPrimaryKeyToObject Veriler, (birincil anahtar, nesne)
      * @return İşlem başarılıysa {@code true}, aksi hâlde {@code false}
      */
     protected boolean assingToHashed(IkizMunferid ikizMunferid, String tableName, HashMap<Object, Object> mapOfPrimaryKeyToObject){
@@ -51,10 +51,10 @@ public class IkizMunferid implements IkizTeamPlayer{
     }
     /**
      * Birincil anahtarı verilen verinin uygulamadaki nesne hâlini döndürür.
-     * @param <T>
-     * @param target
-     * @param valueOfPrimaryKey
-     * @return 
+     * @param <T> Verinin uygulamadaki sınıfını temsîl eden tip
+     * @param target Hedef sınıf, veritabanı nesnesinin sınıfı
+     * @param valueOfPrimaryKey Alınması istenen verinin birincil anahtarı
+     * @return Veri kayıtlı ve indeksli ise nesne, aksi hâlde {@code null}
      */
     protected <T> T getCurrentObjectWithPrimaryKey(Class<?> target, Object valueOfPrimaryKey){
         if(target == null || valueOfPrimaryKey == null)
@@ -70,10 +70,9 @@ public class IkizMunferid implements IkizTeamPlayer{
      * sağlanamayacağı hakkında bilgi verir.
      * İlgili sınıfın tablo yapılandırmasında birincil anahtar varsa verinin
      * uygulama içinde münferid olması sağlanabileceğinden {@code true} verilir
-     * @param <T>
-     * @param target
+     * @param target Hedef sınıf
      * @see TableConfiguration
-     * @return 
+     * @return Veri münferiden sağlanabiliyorsa {@code true}, değilse {@code false}
      */
     protected boolean isCouldGettingObjectWithPrimaryKey(Class<?> target){
         if(target == null)
@@ -86,8 +85,8 @@ public class IkizMunferid implements IkizTeamPlayer{
     }
     /**
      * Verilen tablo daha önce indekslendi mi?
-     * @param target
-     * @return 
+     * @param target Hedef sınıf, nesneyi ifâde eden sınıf
+     * @return Veri indeksli ise {@code true}, aksi hâlde {@code false}
      */
     protected boolean isIndexedBefore(Class<?> target){
         if(target == null)

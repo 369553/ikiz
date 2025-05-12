@@ -33,18 +33,27 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
     private HashMap<String, Object> valuesAsDefault;// Sütun için varsayılan değer atandığı durumda..
     private HashMap<String, Integer> specifiedLengths;// Metîn tipindeki verilerde, metîn uzunluğu için özel bir değer belirtildiyse, onu <sütunİsmi, değer> biçiminde tutar.
     private int lengthForStringAsDefault = 500;// Metîn tipindeki veriler için varsayılan metîn uzunluğu
+    private boolean isPrimaryKeyAutoIncremented = false;// Birincil anahtarın tamsayı olduğu durumda otomatik artan olup, olmadığını sorgulamak için
     private boolean isDefaultLengthOfStringChanged = false;
 
     /**
      * {@code TableConfiguration} örneği oluşturmak için kurucu fonksiyon
      * @param classOfTable Tablosu oluşturulmak istenen sınıf
      * @throws NullPointerException {@code null} sınıf verilirse fırlatılır
+     * @throws SecurityException Java, verilen sınıfa erişirken fırlatabilir,
+     * sınıfın erişilebilir olduğundan emîn olun
      */
-    public TableConfiguration(Class classOfTable) throws NullPointerException{// cls : Yapılandırma yapılması istenen sınıf
+    public TableConfiguration(Class classOfTable) throws NullPointerException, SecurityException{// cls : Yapılandırma yapılması istenen sınıf
         if(classOfTable == null)
             throw new NullPointerException("Verilen sınıf null!");
         this.cls = classOfTable;
-        assignFieldNames();// Sınıfın alan isimlerini al; bu, olmayan alan için yapılandırma eklenememesi içindir
+        try{
+            assignFieldNames();// Sınıfın alan isimlerini al; bu, olmayan alan için yapılandırma eklenememesi ve sütunların belirlenmesi, çıkarılması gibi işlevler için gerekli
+        }
+        catch(SecurityException exc){
+            System.err.println("Hedef sınıfın alan değerlerine erişilemediğinden tablo yapılandırması (TableConfiguration) nesnesi oluşturulamıyor : " + exc.toString());
+            throw exc;
+        }
     }
 
 // * Veritabanı indeksleri için isim atanması bu sürümde desteklenmiyor
@@ -63,11 +72,13 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
         Object primaryKeyFrom = data.get("primaryKey");
         Object notNullsFrom = data.get("notNulls");
         Object valuesAsDefaultFrom = data.get("valuesAsDefault");
+//        ((HashMap<String, Object>) valuesAsDefaultFrom).forEach((key, value) -> {System.out.println(key + " -> " + value);});
         Object specifiedLengthsFrom = data.get("specifiedLengths");
         Object lengthForStringAsDefaultFrom = data.get("lengthForStringAsDefault");
         Object isDefaultLengthOfStringChangedFrom = data.get("isDefaultLengthOfStringChanged");
         Object isTableCreatedFrom = data.get("isTableCreated");
         Object fieldNamesFrom = data.get("fieldsNames");
+        Object isPrimaryKeyAutoIncrementedFrom = data.get("isPrimaryKeyAutoIncremented");
         try{
             this.isConfSet = (isConfSetFrom != null ? (HashMap<String, Boolean>) isConfSetFrom : this.isConfSet);
             this.uniqueFields = (uniqueFieldsFrom != null ? (ArrayList<String>) uniqueFieldsFrom : this.uniqueFields);
@@ -76,8 +87,10 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
             this.notNulls = (notNullsFrom != null ? (ArrayList<String>) notNullsFrom : this.notNulls);
             
             this.primaryKey = (primaryKeyFrom != null ? (String) primaryKeyFrom : this.primaryKey);
+            this.isPrimaryKeyAutoIncremented = (isPrimaryKeyAutoIncrementedFrom != null ? (boolean) isPrimaryKeyAutoIncrementedFrom : false);
             
             this.valuesAsDefault = (valuesAsDefaultFrom != null ? (HashMap<String, Object>) valuesAsDefaultFrom : this.valuesAsDefault);
+            
             this.specifiedLengths = (specifiedLengthsFrom != null ? (HashMap<String, Integer>) specifiedLengthsFrom : this.specifiedLengths);
             this.isConfSet = (isConfSetFrom != null ? (HashMap<String, Boolean>) isConfSetFrom : this.isConfSet);
             
@@ -98,7 +111,7 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
     }
     /**
      * Tablo yapılandırmasını dış dosyaya aktarabilmek için bir haritada toplar
-     * @return Tablo yapılandırma haritası, ("özellik ismi -> yapılandırma")
+     * @return Tablo yapılandırma haritası, ("özellik ismi, yapılandırma")
      */
     protected Map<String, Object> exportConfigurations(){
         Map<String, Object> root = new HashMap<String, Object>();
@@ -116,6 +129,7 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
         root.put("lengthForStringAsDefault", lengthForStringAsDefault);
         root.put("isDefaultLengthOfStringChanged", getIsDefaultLengthOfStringChanged());
         root.put("isTableCreated", isTableCreated);
+        root.put("isPrimaryKeyAutoIncremented", isPrimaryKeyAutoIncremented);
         return root;
     }
     /**
@@ -132,6 +146,44 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
         }
     }
     /**
+     * Verilen alanı otomatik artan olarak ayarlar
+     * Yalnızca tamsayı ve birincil anahtar olan alan otomatik artan olabilir
+     * Bu sebeple önce ilgili alanı birincil anahtar olarak işâretleyin
+     * Şu tipteki alanlar otomatik artan alan olabilir:<br>
+     * - {@code java.lang.Integer} - {@code int}<br>
+     * - {@code java.lang.Short} - {@code short}<br>
+     * - {@code java.lang.Long} - {@code long}<br>
+     * - {@code java.math.BigInteger}
+     * @return İşlem başarılıysa {@code true}, değilse {@code false}
+     */
+    public boolean setPrimaryKeyAutoIncremented(){
+        if(isTableCreated)// Tablo üretilmişse, yapılandırma değişikliğine izin verilmez
+            return false;
+        if(getIsConfSet().get("primaryKey")){
+            Class<?> type = getClassOfField(this.primaryKey);
+            if(type != null){
+                if(type.equals(Integer.class) || type.equals(int.class) || type.equals(short.class) || type.equals(Short.class)
+                    || type.equals(long.class) || type.equals(Long.class) || type.getName().equals("java.math.BigInteger")){
+                    isPrimaryKeyAutoIncremented = true;
+                    getIsConfSet().put("isPrimaryKeyAutoIncremented", Boolean.TRUE);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    /**
+     * Birincil anahtar alanının otomatik artan alan olma özelliği iptâl edilir
+     */
+    public void cancelAutoIncrementityOfPK(){
+        if(isTableCreated)// Tablo üretilmişse, yapılandırma değişikliğine izin verilmez
+            return;
+        if(getIsConfSet().get("primaryKey")){
+            isPrimaryKeyAutoIncremented = false;
+            getIsConfSet().put("isPrimaryKeyAutoIncremented", Boolean.FALSE);
+        }
+    }
+    /**
      * Oluşturulmak istenen tablonun birincil anahtarı olacak sütunu belirtin
      * {@code null} verilirse mevcut birincil anahtar iptal edilir
      * Bu ayar tablo oluşturulmadan evvel belirtilebilir
@@ -145,12 +197,21 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
             return;
         boolean set = false;
         if(primaryKey != null){
+            if(this.primaryKey != null){
+                if(this.primaryKey.equals(primaryKey))
+                    return;
+            }
             if(isInFields(primaryKey)){
                 this.primaryKey = primaryKey;
                 set = true;
             }
         }
         getIsConfSet().put("primaryKey", set);
+        if(!set){
+            this.primaryKey = null;
+        }
+        this.isPrimaryKeyAutoIncremented = false;
+        getIsConfSet().put("isPrimaryKeyAutoIncremented", Boolean.FALSE);
     }
     /**
      * Münferid ('UNIQUE', tekil) veri barındırma kısıtı eklemek için kullanılır
@@ -328,6 +389,7 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
             getSpecifiedLengths().remove(fieldName);// Müşahhas uzunluk belirtimi kısıtı varsa, kaldır
             if(getIsConfSet().get("primaryKey")){
                 if(getPrimaryKey().equals(fieldName)){
+                    this.cancelAutoIncrementityOfPK();
                     this.setPrimaryKey(null);
                 }
             }
@@ -354,10 +416,25 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
         }
         isConfSet.remove("cls");
     }
-    private void assignFieldNames(){
+    private void assignFieldNames() throws SecurityException{
         for(Field f : this.cls.getDeclaredFields()){
             getFieldNames().add(f.getName());
         }
+    }
+    private Class<?> getClassOfField(String fieldName){
+        if(fieldName == null)
+            return null;
+        if(fieldName.isEmpty())
+            return null;
+        try{
+            Field fl = this.cls.getDeclaredField(fieldName);
+            if(fl != null)
+                return fl.getType();
+        }
+        catch(NoSuchFieldException | SecurityException exc){
+            System.err.println("Verilen alana erişilemedi; ilgili alan yok veyâ erişim hatâsı oluştu : " + exc.toString());
+        }
+        return null;
     }
     private boolean checkDataType(String fieldName, Object value){
         try{
@@ -459,7 +536,7 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
      * Yapılandırılma belirtim haritasını döndürür.
      * Haritada {@code true} olan değerler o yapılandırmanın 
      * kullanıcı tarafından belirtildiğini gösterir
-     * @return 
+     * @return Yapılandırma belirtim haritası
      */
     protected HashMap<String, Boolean> getIsConfSet(){
         if(isConfSet == null){
@@ -514,8 +591,8 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
         return names;
     }
     /**
-     * Sınıfın karşılığı olabilecek tablonun ismini döndürür
-     * @return 
+     * Sınıfın karşılığı olan / olabilecek tablonun ismini döndürür
+     * @return Sınıfın veritabanı karşılığı olan / olabilecek tablo ismi
      */
     public String getTableName(){
         return this.cls.getSimpleName();
@@ -570,6 +647,13 @@ public class TableConfiguration{// ALAN İSİMLERİ DEĞİŞTİRİLEMEZ!
      */
     public boolean getIsTableCreated(){
         return isTableCreated;
+    }
+    /**
+     * Birincil anahtarın otomatik artan olup, olmadığı bilgisini döndürür
+     * @return Otomatik artan ise {@code true}, aksi hâlde {@code false}
+     */
+    public boolean getIsPrimaryKeyAutoIncremented(){
+        return isPrimaryKeyAutoIncremented;
     }
     //KORUNAN ERİŞİM YÖNTEMLERİ:
     /**

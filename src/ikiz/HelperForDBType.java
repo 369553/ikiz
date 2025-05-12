@@ -50,15 +50,15 @@ public interface HelperForDBType{// Veritabanları açısından farklılık arz 
      */
     public Character getEndSymbolOfName();// Özel isim için bitiş simgesi
     /** Java veri tipinin hangi veritabanı tipine denk düştüğünü belirten harita
-     * Yapısı, "javaVeriTipiIsmi -> veritabaniVeriTipiIsmi" biçiminde olmalıdır
-     * Güvenlik açısından her seferinde yeni bir harita nesnesi döndürmelidir
+     * Yapısı, "javaVeriTipiIsmi , veritabaniVeriTipiIsmi" biçimindedir
+     * Güvenlik açısından her seferinde yeni bir harita nesnesi döndürülür
      * @return Java - veritabanı veri tipi eşleşme haritası
      */
     public HashMap<String, String> getMapOfDataTypeToDBDataType();
     /**
      * Verilen Java veri tipi için veritabanı desteği olup, olmadığını bildirir
      * @param dataTypeName Java veri tipi ismi
-     * @return 
+     * @return Destek sağlanıyorsa {@code true}, aksi hâlde {@code false}
      */
     public boolean isSupported(String dataTypeName);
     /**
@@ -68,7 +68,7 @@ public interface HelperForDBType{// Veritabanları açısından farklılık arz 
     public String getDataTypeNameForJSON();
     /**
      * Veritabanının JDBC üzerindeki ürün ismini döndürür
-     * @return 
+     * @return Veritabanı bağlantı arayüzü tarafından döndürülen isim
      */
     public String getDatabaseProductName();
     /**
@@ -77,4 +77,32 @@ public interface HelperForDBType{// Veritabanları açısından farklılık arz 
      * @return Enum verisi için en uygun veritabanı veri tipi ismi
      */
     public String getDataTypeNameForEnum();
+    /**
+     * Verilen veritabanı veri tipi isminin varsayılan metîn tipi olup,
+     * olmadığı bilgisini döndürür
+     * Bu, veritabanları arasında farklılık gösterebilir
+     * {@code CVity.DBType.MSSQL} ve {@code CVity.DBType.MYSQL} için "VARCHAR"dır
+     * @param sqlTypeName Veritabanı veri tipi ismi
+     * @return Girdi, varsayılan metîn veri tipi ismi ise {@code true}, değilse {@code false}
+     */
+    public boolean isDefaultStringDataType(String sqlTypeName);
+    /**
+     * Verilen SQL veri tipinin Java'daki karşılığı olan sınıfı döndürür
+     * Temel veri tiplerinin kendi sınıfını değil, sarmalayıcı sınıfını döndürür
+     * @param sqlTypeName Veritabanındaki veri tipi ismi (SQL veri tipi ismi)
+     * @return SQL tipinin karşılığı olan Java sınıfı veyâ {@code null}
+     */
+    public Class<?> getMatchedClassForGivenSqlType(String sqlTypeName);
+    /**
+     * Sütun tanımının sonunda kullanılmak üzere, alanın otomatik artan olması
+     * için yazılması gereken anahtar kelîmeyi döndürür
+     * @return 'Otomatik artan' özelliğinin anahtar kelîmesi
+     */
+    public String getAutoIncrementKeyword();
+    /**
+     * Bu fonksiyon bir oturum içerisinde en son eklenen verinin otomatik artan
+     * alanının değerini öğrenmek için çalıştırılması gereken sorguyu döndürür
+     * @return Son eklenen otomatik artan alan değeri için SQL sorgu metni
+     */
+    public String getQueryForLastInsertedID();
 }

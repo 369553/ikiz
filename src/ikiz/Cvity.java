@@ -25,23 +25,28 @@ public class Cvity{
      */
     public enum DBType{
         MYSQL,
-        MSSQL,
-        POSTGRESQL,
-        SQLITE
+        MSSQL
+//        POSTGRESQL,
+//        SQLITE
     }
     /**
      * Sınıf örneği yapıcı fonksiyonu
      * @param connext Veritabanı bağlantı nesnesi
      * @param userName Kullanıcı adı
      * @param password Kullanıcı şifresi
-     * @param schemaName 
+     * @param dbName Hedef veritabanı (şema) ismi
+     * @throws IllegalArgumentException Hedef veritabanı tanınmıyorsa, fırlatılır
      */
-    public Cvity(Connection connext, String userName, String password, String schemaName){
+    public Cvity(Connection connext, String userName, String password, String dbName) throws IllegalArgumentException{
         this.connext = connext;
-        this.schemaName = schemaName;
+        this.schemaName = dbName;
         this.userName = userName;
         this.password = password;
-        this.dbType = Cvity.detectDBType(connext);
+        DBType type = Cvity.detectDBType(connext);
+        if(type == null)
+            throw new IllegalArgumentException("Verilen bağlantıyla belirtilen veritabanı bu sürümde tanınmıyor");
+        else
+            this.dbType = type;
     }
 
 //İŞLEM YÖNTEMLERİ:
@@ -60,7 +65,7 @@ public class Cvity{
     }
     /**
      * Verilen bilgilere göre hedef veritabanına bağlanır, sunucu bazlı olmayan
-     * {@code Cvity.DBType.SQLITE} veritabanı için {@code dbName} parametresinin
+     * {@code Cvity.DBType.SQLITE} veritabanı için {@code Cvity} parametresinin
      * hedef dosyanın adresini gösterecek şekilde verilmesi kâfîdir
      * @param userName Veritabanı kullanıcı adı
      * @param password İlgili kullanıcının şifresi
@@ -187,6 +192,15 @@ public class Cvity{
     public HelperForDBType getHelperForDBType(){
         return HelperForHelperForDBType.getHelper(this.dbType);
     }
+    @Override
+    public String toString(){
+        StringBuilder bui = new StringBuilder();
+        bui.append(this.getClass().getName() + ": ").append("userName: ").append(this.userName)
+            .append(", dbType: ").append(this.dbType).append(", db: ").append(schemaName);
+        if(this.hostName != null)
+            bui.append(", host: ").append(this.hostName).append(", port: ").append(this.portNumber);
+        return bui.toString();
+    }
 
 //ERİŞİM YÖNTEMLERİ:
     /**
@@ -211,8 +225,8 @@ public class Cvity{
         return connext;
     }
     /**
-     * Bağlanılan veritabanı tablo ismini verir
-     * @return Tablo ismi
+     * Bağlanılan veritabanı ismini verir
+     * @return Veritabanı ismi
      */
     public String getSchemaName(){
         return schemaName;

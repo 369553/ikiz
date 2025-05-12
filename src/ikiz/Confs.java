@@ -22,8 +22,8 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     /**
      * Sınıf içerisindeki liste, dizi ve harita tipindeki verilerin veritabanına
      * nasıl kaydedileceğini belirten bir değer kümesidir
-     * {@code TAKE_AS_JSON} -> JSON tipinde kaydedilir(veritabanı destekliyorsa)
-     * {@code DONT_TAKE} -> Bu alanlar veritabanına kaydedilmez
+     * {@code TAKE_AS_JSON} : JSON tipinde kaydedilir(veritabanı destekliyorsa)
+     * {@code DONT_TAKE} : Bu alanlar veritabanına kaydedilmez
      */
     public enum POLICY_FOR_LIST_MAP_ARRAY{// Bir sınıftaki liste, harita ve dizi türü verilerin nasıl saklanacağıyla ilgili yapılandırma
         TAKE_AS_JSON,// İlgili veri veritabanında JSON biçiminde saklanır (destekleyen veritabanlarında çalışır)
@@ -32,8 +32,8 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     /**
      * Sınıf içerisinde kullanıcı tanımlı tipte bir özellik varsa, bunun nasıl
      * ele alınacağı bu değer kümesindeki parametre ayarıyla belirtilir
-     * {@code TAKE_AS_JSON} -> JSON tipinde kaydedilir(veritabanı destekliyorsa)
-     * {@code DONT_TAKE} -> Bu alanlar veritabanına kaydedilmez
+     * {@code TAKE_AS_JSON} : JSON tipinde kaydedilir(veritabanı destekliyorsa)
+     * {@code DONT_TAKE} : Bu alanlar veritabanına kaydedilmez
      */
 //    public enum POLICY_FOR_USER_DEFINED_CLASSES{
 //        TAKE_AS_JSON,
@@ -141,10 +141,10 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
     /**
      * Ikiz'in hangi erişim belirtecindeki özellikleri alacağını belirten
      * yapılandırma ayarıdır
-     * İlgili tipteki özellik alınmak isteniyorsa [@code true} verilmelidir
-     * @param takePublicFields {@code public} tipindekiler alınsın mı?
-     * @param takePrivateFields {@code private} tipindekiler alınsın mı?
-     * @param takeDefaultFields {@code default} tipindekiler alınsın mı?
+     * İlgili tipteki özellik alınmak isteniyorsa [@code true} verilmelidir<br>
+     * @param takePublicFields {@code public} tipindekiler alınsın mı?<br>
+     * @param takePrivateFields {@code private} tipindekiler alınsın mı?<br>
+     * @param takeDefaultFields {@code default} tipindekiler alınsın mı?<br>
      * @param takeProtectedFields  {@code protected} tipindekiler alınsın mı?
      */
     public void setAttributesPolicyOneByOne(boolean takePublicFields, boolean takePrivateFields, boolean takeDefaultFields, boolean takeProtectedFields){

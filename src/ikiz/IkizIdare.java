@@ -2,7 +2,6 @@ package ikiz;
 
 import ReflectorRuntime.Reflector;
 import jsoner.JSONReader;
-import ikiz.Services.DTService;
 import ikiz.Services.Helper;
 import jsoner.JSONWriter;
 import java.lang.reflect.Constructor;
@@ -15,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -26,8 +26,9 @@ import rwservice.RWService;
 
 /**
  * İkiz sisteminin çekirdeğini ifâde eden idâreci sınıftır
- * Neredeyse tüm işlemler bu sınıf üzerinden yapılmakta veyâ başlatılmaktadır
+ * Ana işlemlerin çoğu bu sınıf üzerinden yapılmakta veyâ başlatılmaktadır
  * @author Mehmet Akif SOLAK
+ * @version 1.0.0-beta
  */
 public class IkizIdare{
     private static IkizIdare ikiz;
@@ -37,12 +38,12 @@ public class IkizIdare{
     private HashMap<String, List<? extends Object>> bufferTables;
     private HashMap<String, Date> lastUpdateTimeOfTables;//Tabloların en son güncellendiği zamânı belirtiyor.
     private HashMap<String, UpdateMode> updateModeOfTables;//Tabloların tazeleme modunu belirtiyor.
-    private ErrorTable errorTable;//Hatâların yazılması ve gösterilmesiyle ilgili bir sistem
+//    private ErrorTable errorTable;//Hatâların yazılması ve gösterilmesiyle ilgili bir sistem
     private final Character start, end;// Veritabanı sistemine göre bir özel ismin başlangıç ve sonunu belirten karakter
     private final HashMap<String, String> mapDataTypeToDBDataType;// Sistemin çalıştığı veritabanı sistemine göre veri tipleri eşleştirme haritası
     private HashMap<String, TableMetadata> metadataOfTables;// Tablolar hakkında bilgiler
     private DBAccessHelper dbAccess;// Veritabanındaki bâzı işlemlerin kolayca yapılması için bir sınıf
-    private List<Class> loadedClasses;// Veritabanı tablolarından yapılandırma çıkarılması gerektiği durumda sınıflara ihtiyaç var.
+    private List<Class<?>> loadedClasses;// Veritabanı tablolarından yapılandırma çıkarılması gerektiği durumda sınıflara ihtiyaç var.
     private IkizMunferid ikizMunferid = null;// Verilerin sistem içerisinde tekil olmasını sağlamak için kullanılan yardımcı sınıf
 //    private HashMap<String, HashMap<
 
@@ -51,16 +52,17 @@ public class IkizIdare{
         this.start = connectivity.getHelperForDBType().getStartSymbolOfName();
         this.end = connectivity.getHelperForDBType().getEndSymbolOfName();
         dbAccess = new DBAccessHelper(connectivity);
-        errorTable = new ErrorTable();
+//        errorTable = new ErrorTable();
         this.confs = Confs.getDefaultConfs();
 //        this.confs.bufferMode = true;
         this.mapDataTypeToDBDataType = HelperForHelperForDBType.getHelper(this.connectivity.getDBType()).getMapOfDataTypeToDBDataType();
         getIkizMunferid();
     }
     /**
-     * 
-     * @param connectivity
-     * @param useBufferMode 
+     * İkiz'i oluşturur
+     * @param connectivity İkiz'in üzerinde çalışması istenen veritabanı
+     * bağlantısını barındıran {@code CVity} nesnesi
+     * @param useBufferMode Önbellekleme modunun aktif olma durumu
      */
     private IkizIdare(Cvity connectivity, boolean useBufferMode){
         this(connectivity);
@@ -120,7 +122,7 @@ public class IkizIdare{
      * @param tableClass Veritabanı tablosuna dönüştürülmek istenen sınıf
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
      */
-    public boolean produceTable(Class tableClass){
+    public boolean produceTable(Class<?> tableClass){
         return produceTable(tableClass, null);
     }
     /**
@@ -131,9 +133,9 @@ public class IkizIdare{
      * @param tableClass Veritabanı tablosuna dönüştürülmek istenen sınıf
      * @param tableConfs Tablo yapılandırması
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
-     * @see {@code ikiz.TableConfiguration}
+     * @see {@code ikiz.ikiz.TableConfiguration}
      */
-    public boolean produceTable(Class tableClass, TableConfiguration tableConfs){
+    public boolean produceTable(Class<?> tableClass, TableConfiguration tableConfs){
         if(tableClass == null)
             return false;
         String tableName = tableClass.getSimpleName();// Tablo ismi = veritabanı nesnesi (entity) ismi
@@ -148,14 +150,14 @@ public class IkizIdare{
         Field[] fields = tableConfs.getTakeableFields();// Tüm aday sütunları al
         String[] columnNames = new String[fields.length];
         String[] columnTypes = new String[fields.length];
-        Map<String, String> constraintTextsToProvideDataType = new HashMap<String, String>();
+        Map<String, String> constraintTextsToProvideDataType = new HashMap<String, String>();// Bâzı veritabanları için hedef tipin sağlanması kısıt eklenmesi yoluyla olmaktadır. Bu, bunun içindir.
         int takedAttributesCounter = 0;// Alınan özellik sayısı sayacı
         HashMap<String, Field> metadataOnTargetFields = new HashMap<String, Field>();// İkiz için saklanan 'alan ismi - veri tipi' haritası
         // ANA ADIM - 1 : Alan isimlerini ve hedef veri tiplerini belirle:
         for(int sayac = 0; sayac < fields.length; sayac++){
             boolean isTaked = false;// Şu anki döngü çevrimindeki özelliğin alınıp, alınmadığı bilgisini tutuyor
             if(takeThisField(fields[sayac].getModifiers())){// // Kontrol - 1 : Erişim belirteci belirlenen stratejiye uygun mu?
-                Class typeOfField = fields[sayac].getType();// Alanın veri tipi alınır
+                Class<?> typeOfField = fields[sayac].getType();
                 // Veri tipi kontrolleri:
                 if(isBasicType(typeOfField)){// Kontrol - 2.1 : Temel veri tipiyse ilgili alan için verileri al
                     columnNames[takedAttributesCounter] = fields[sayac].getName();
@@ -164,9 +166,7 @@ public class IkizIdare{
                     isTaked = true;
                 }
                 else{// Bu alan temel veri tipi değilse;
-                    HashMap<String, Boolean> results = isListOrMapOrArray(typeOfField);//Kontrol 2.2 : Liste-harita-dizi olup, olmadığını kontrol et..
-                    boolean isArray = results.get("isArray");
-                    boolean isMap = results.get("isMap");
+                    HashMap<String, Boolean> results = isArrayOrCollection(typeOfField);//Kontrol 2.2 : Liste-harita-dizi olup, olmadığını kontrol et..
                     if(results.get("result")){// Eğer veri tipi List veyâ Map veyâ Array (dizi) ise;
                         if(this.confs.getPolicyForListArrayMapFields() != Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE){// Kontrol 2.3 : Bu alanlar 'alınmayacak' olarak işâretlenmemişse;
                             if(this.confs.getPolicyForListArrayMapFields().equals(Confs.POLICY_FOR_LIST_MAP_ARRAY.TAKE_AS_JSON)){// Bu veriler veritabanına JSON olarak kaydedilmek isteniyorsa;
@@ -235,7 +235,6 @@ public class IkizIdare{
                 }
             }
         }
-        System.out.println("tableName : "  + tableName);
         query = new StringBuilder("CREATE TABLE ").append((start != null ? start : "")).
                 append(tableName).append((end != null ? end : ""));
             query.append("(");
@@ -245,6 +244,11 @@ public class IkizIdare{
             query.append(columnTypes[sayac]);
             if(tableConfs.isNotNull(columnNames[sayac]))// NOT NULL kısıtı varsa, ekle:
                 query.append(" NOT NULL ");
+            if(tableConfs.getIsPrimaryKeyAutoIncremented()){
+                if(tableConfs.getPrimaryKey().equals(columnNames[sayac])){
+                    query.append(" ").append(this.connectivity.getHelperForDBType().getAutoIncrementKeyword()).append(" ");
+                }
+            }
             Object defValue = tableConfs.getDefaultValues().get(columnNames[sayac]);// Varsayılan değer kısıtı varsa, ekle
             if(defValue != null){
                 query.append(" DEFAULT ? ");
@@ -275,20 +279,35 @@ public class IkizIdare{
             PreparedStatement prepSt = connectivity.getConnext().prepareStatement(query.toString());// Bu cursor tipinde hatâ veriyor : ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE
             // Varsayılan değerleri koy:
             int setCounter = 1;
+            Object[] defValsForRawQuery = new Object[takedAttributesCounter];
             for(int sayac = 0; sayac < takedAttributesCounter; sayac++){
                 Object value = tableConfs.getDefaultValues().get(columnNames[sayac]);
                 if(value != null){
-                    if(value.getClass().equals(char.class) || value.getClass().equals(Character.class)){
-                        prepSt.setObject(setCounter, value, java.sql.JDBCType.CHAR);
-                    }
+                    if(this.connectivity.getDBType() == Cvity.DBType.MSSQL)
+                         defValsForRawQuery[setCounter - 1] = value;
                     else{
-                        prepSt.setObject(setCounter, value);
+                        if(value.getClass().equals(char.class) || value.getClass().equals(Character.class)){
+                            prepSt.setObject(setCounter, value, java.sql.JDBCType.CHAR);
+                        }
+                        else if(value.getClass().isEnum()){
+                            prepSt.setObject(setCounter, String.valueOf(value));
+                        }
+                        else{
+                            prepSt.setObject(setCounter, value);
+                        }
                     }
                     setCounter++;
                 }
             }
             // Sorguyu çalıştır:
-            prepSt.execute();
+//            System.out.println("Gönderilen komut : " + prepSt);// MsSQL desteklemiyor, konfordan uzak!..
+            if(this.connectivity.getDBType() != Cvity.DBType.MSSQL)
+                prepSt.execute();
+            else{
+                String fullRawQuery = dbAccess.getFinalSQLQuery(query.toString(), defValsForRawQuery);
+                System.out.println("fullRawQuery : " + fullRawQuery);
+                this.connectivity.getConnext().createStatement().execute(fullRawQuery);
+            }
             if(!dbAccess.checkIsTableInDB(tableName)){
                 System.err.println("Tablo oluşturma işlemi başarısız oldu");
                 return false;
@@ -302,7 +321,7 @@ public class IkizIdare{
             return true;
         }
         catch(SQLException ex){
-            System.out.println("ex.getMessage : (konum : produceTable)" + ex.getMessage());
+            System.err.println("(konum : produceTable), ex.getMessage : " + ex.getMessage());
             return false;
         }
     }
@@ -323,7 +342,7 @@ public class IkizIdare{
      * Bu yöntem, İkiz sistemine kaydedilmeyen tablolar için çalışmaz
      * @param entity Veritabanına satır olarak eklenmek istenen veri
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
-     * @see {@code Reflector.CODING_TYPE}
+     * @see {@code ReflectorRuntime.Reflector.CODING_TYPE}
      */
     public boolean addRowToDB(Object entity){
         if(entity == null)
@@ -339,10 +358,20 @@ public class IkizIdare{
             return false;
         StringBuilder query = new StringBuilder("INSERT INTO ").append((start != null ? start : ""))
                 .append(tableName).append((end != null ? end : "")).append("(");
-        Map<String, Field> metadata = getMapOfTargetFields(entity.getClass().getSimpleName());
-        Field[] taked = new Field[metadata.values().size()];
-        metadata.values().toArray(taked);
-        int takedAttributeNumber = metadata.size();
+        Map<String, Field> mapOfTargets = new HashMap<String, Field>();// Ayrı bir nesne olması sonraki işlem sebebiyle önemli!
+        mapOfTargets.putAll(getMapOfTargetFields(entity.getClass().getSimpleName()));
+        TableMetadata md = getMetadataOfTable(tableName);
+        boolean pkIsAutoIncremented = false;// Birincil anahtarın otomatik artan olup, olmadığı bilgisi
+        Statement st = null;
+        if(md != null){
+            if(md.getConfs().getIsPrimaryKeyAutoIncremented()){
+                mapOfTargets.remove(md.getConfs().getPrimaryKey());
+                pkIsAutoIncremented = true;
+            }
+        }
+        Field[] taked = new Field[mapOfTargets.values().size()];
+        mapOfTargets.values().toArray(taked);
+        int takedAttributeNumber = mapOfTargets.size();
         for(Field fl : taked){
             query.append((start != null ? start : "")).append(fl.getName()).
                     append((end != null ? end : "")).append(", ");
@@ -355,11 +384,12 @@ public class IkizIdare{
         }
         query.delete(query.length() - 2, query.length());// Sona eklenen fazladan ", " karakterlerini sil
         query.append(");");
-        System.out.println("hâzırlanan sorgu cümlesi : " + query.toString());
+        System.out.println("Hâzırlanan sorgu cümlesi : " + query.toString());
         PreparedStatement preparing = null;
         
         try{
-            preparing = connectivity.getConnext().prepareStatement(query.toString());
+            int takeGeneratedKeysAttr = (pkIsAutoIncremented ? Statement.RETURN_GENERATED_KEYS : Statement.NO_GENERATED_KEYS);
+            preparing = connectivity.getConnext().prepareStatement(query.toString(), takeGeneratedKeysAttr);
         }
         catch(SQLException exc){
             System.err.println("Hatâ, sorgu cümlesi hâzırlama yapısı üretilemedi : " + exc.toString());
@@ -411,7 +441,7 @@ public class IkizIdare{
                 }
 //                System.err.println("hatâ, yetkisiz erişim : " + ex.getMessage());
             }
-            HashMap<String, Boolean> analysis = isListOrMapOrArray(taked[sayac].getType());
+            HashMap<String, Boolean> analysis = isArrayOrCollection(taked[sayac].getType());
             if(analysis.get("result")){
                  value = getJSONStringFromObject(pureValue);// İlgili nesne verisini JSON metni olarak al
             }
@@ -431,9 +461,27 @@ public class IkizIdare{
                 return false;
             }
         }
-        query.append(");");
         try{
-            return (preparing.executeUpdate() > 0);
+            boolean result = preparing.executeUpdate() > 0;
+            if(result && pkIsAutoIncremented){
+                try{
+                    HashMap<String, Object> mapOf = new HashMap<String, Object>();
+                    String pkColName = md.getConfs().getPrimaryKey();
+                    ResultSet resSetForPKValue = preparing.getGeneratedKeys();
+                    resSetForPKValue.next();
+                    Object pkValue = resSetForPKValue.getObject(1);
+                    if(pkValue != null){
+                        mapOf.put(pkColName, pkValue);
+                        Reflector.getService().injectData(entity, mapOf, Reflector.CODING_STYLE.CAMEL_CASE);// Yeni gelen değeri nesneye zerk et
+                    }
+                    else
+                        throw new NullPointerException();
+                }
+                catch(ClassCastException | NullPointerException | IndexOutOfBoundsException excOnFetchPK){
+                    System.err.println("Yeni eklenen verinin otomatik artan alan değeri uygulamadaki nesneye aktarılamadı : " + excOnFetchPK.toString());
+                }
+            }
+            return result;
         }
         catch (SQLException ex){
             System.err.println("Hatâ, sorgu çalıştırılmadı : " + ex.getMessage());
@@ -445,7 +493,7 @@ public class IkizIdare{
      * @param cls Kaldırılmak istenen tablonun uygulamadaki karşılığı olan sınıf
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
      */
-    public boolean deleteTable(Class cls){// Hangi sınıfla ilişkili tablo silinmek isteniyorsa parametre olarak verilmelidir.
+    public boolean deleteTable(Class<?> cls){// Hangi sınıfla ilişkili tablo silinmek isteniyorsa parametre olarak verilmelidir.
         if(cls == null)
             return false;
         boolean tableDetected = false;
@@ -573,9 +621,9 @@ public class IkizIdare{
             return null;
         TableMetadata md = getMetadataOfTable(tableName);
         T value = null;
-        System.err.println("]$ buffer : " + this.confs.bufferMode);
+//        System.err.println("]$ Tampon mod etkin mi : " + this.confs.bufferMode);
         if(this.confs.bufferMode && getIkizMunferid().isIndexedBefore(target)){
-            System.err.println("]$ isIndexedBefore");
+//            System.err.println("]$ Evvelde İndekslenmiş; tampondan getiriliyor..");
             return getIkizMunferid().getCurrentObjectWithPrimaryKey(target, primaryKeyValue);
         }
         try{
@@ -612,7 +660,7 @@ public class IkizIdare{
      * @param cls Hedef sınıf
      * @return Tablonun varlığı doğrulanırsa {@code true}, aksi hâlde {@code false}
      */
-    public boolean checkIsTableInDB(Class cls){// DEĞİŞTİR
+    public boolean checkIsTableInDB(Class<?> cls){// DEĞİŞTİR
         if(cls == null)
             return false;
         return dbAccess.checkIsTableInDB(cls.getSimpleName());
@@ -633,7 +681,7 @@ public class IkizIdare{
      * @param cls İkiz sistemine kaydedilmek istenen veritabanı tablo sınıfı
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
      */
-    public boolean integrateTableClassToIkiz(Class cls){
+    public boolean integrateTableClassToIkiz(Class<?> cls){
         if(cls == null)
             return false;
         if(Helper.isInTheList(workingTables, cls.getSimpleName())){
@@ -648,7 +696,7 @@ public class IkizIdare{
         // Veritabanından tabloyla ilgili önverileri çek:
         List<String> fieldNames = dbAccess.getFieldNames(tableName);// Sütun isimlerini al
         HashMap<String, Field> mapOfTargets = extractMapOfTargetFields(fieldNames, cls);// Karşılığı olan alanları bul
-        TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls);// Tablo yapılandırma nesnesini oluştur
+        TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls, mapOfTargets);// Tablo yapılandırma nesnesini oluştur
         TableMetadata md = new TableMetadata(cls, tblConfs, mapOfTargets);// Tablo önveri nesnesini oluştur
         getMetadataOfTables().put(cls.getSimpleName(), md);// Bu yapılandırmayı kaydet
         getWorkingTables().add(tableName);// Tabloyu çalışılan tablo listesinin arasına kaydet
@@ -659,7 +707,7 @@ public class IkizIdare{
      * @param cls Hedef tablonun uygulamadaki karşılığı olan sınıf
      * @return İşlem başarılıysa {@code true}, aksi hâlde {@code false}
      */
-    public boolean discardTableFromIkiz(Class cls){
+    public boolean discardTableFromIkiz(Class<?> cls){
         if(cls == null)
             return false;
         String tableName = cls.getSimpleName();
@@ -685,9 +733,10 @@ public class IkizIdare{
         return updateRowInDB(entity, null);
     }
     /**
-     * Birincil anahtarı veyâ 'NOT NULL + UNIQUE' ksııtı olan ve İkiz'e kayıtlı
+     * Birincil anahtarı veyâ 'NOT NULL + UNIQUE' kısıtı olan ve İkiz'e kayıtlı
      * olan bir tablonun satırının belirli değerlerini tazelemek için kullanılır
      * Bu yöntem, İkiz sistemine kaydedilmeyen tablolar için çalışmaz
+     * Otomatik artan birincil anahtar sütununun verisi tazelenmez
      * @param entity Veritabanı nesnesi
      * @param fieldNames Hedef tabloda hangi verilerin tazeleneceği bilgisi
      * @return Etkilenen satır varsa {@code true}, diğer durumlarda {@code false}
@@ -703,8 +752,10 @@ public class IkizIdare{
         boolean applyForceUpdate = false;// Veriyi zor yoldan bulmak gerekiyorsa 'true' olmalı
         if(fieldNames == null){
             fieldNames = new ArrayList<String>();
-            for(String s : md.getMapOfTargetFields().keySet())
-                fieldNames.add(s);
+            fieldNames.addAll(md.getMapOfTargetFields().keySet());
+            if(tblConfs.getIsPrimaryKeyAutoIncremented()){
+                fieldNames.remove(tblConfs.getPrimaryKey());
+            }
         }
         Map<String, Object> mapOfData = getValueOfFieldsAsConverted(entity, fieldNames);
         if(tblConfs != null){
@@ -829,7 +880,7 @@ public class IkizIdare{
      * @param cls Varlığı sorgulanmak istenen tablonun karşılığı olan sınıf
      * @return Sınıf İkiz'e entegreyse {@code true}, aksi hâlde {@code false}
      */
-    public boolean isInIkiz(Class cls){
+    public boolean isInIkiz(Class<?> cls){
         return (cls == null ? false : isInIkiz(cls.getSimpleName()));
     }
     /**
@@ -850,6 +901,7 @@ public class IkizIdare{
     }
     /**
      * 
+     * @param <T> Hedef sınıfı simgeleyen tip
      * @param target Verilen sınıfın karşılığı veritabanı tablosundaki veriler
      * çekilir ve tampon bölgedeki (önbellekteki) veriler tazelenir
      * @return İşlem başarılıysa {@code true}, değilse {@code false} döndürülür
@@ -873,7 +925,7 @@ public class IkizIdare{
      */
     public boolean loadSystemByAnalyzingDB(){
         // İkiz yapılandırma tablosunun veri olarak tespîtinin önlenmesini kodla
-//        String dbName = this.connectivity.getSchemaName();
+//        String Cvity = this.connectivity.getSchemaName();
         List<String> tables = dbAccess.getTableNames();
         if(tables == null){
             System.err.println("Veritabanı analizi başarısız oldu.");
@@ -883,13 +935,13 @@ public class IkizIdare{
         // İşlem - 2 : Tablo önbilgilerini tespit et ve kaydet;
         for(String tbl : getWorkingTables()){
             List<String> fieldNames = dbAccess.getFieldNames(tbl);
-            Class cls = getSuitableClassOnTheList(tbl, fieldNames);
+            Class<?> cls = getSuitableClassOnTheList(tbl, fieldNames);
             if(cls == null){
                 System.err.println("Şu sınıfın uygulamadaki karşılığı bulunamadı : " + tbl);
                 continue;
             }
             HashMap<String, Field> mapOfTargets = extractMapOfTargetFields(fieldNames, cls);
-            TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls);
+            TableConfiguration tblConfs = getConfiguresOfTableFromDB(cls, mapOfTargets);
             TableMetadata md = new TableMetadata(cls, tblConfs, mapOfTargets);
             getMetadataOfTables().put(cls.getSimpleName(), md);// Ayarları İkiz'e aktar
         }
@@ -1025,7 +1077,7 @@ public class IkizIdare{
         String dType = mapDataTypeToDBDataType.get(typeName);
         return (dType != null ? dType : "");
     }
-    private boolean controlGetterAndSetterForHideFields(Class cls, boolean searchForJustGetter){
+    private boolean controlGetterAndSetterForHideFields(Class<?> cls, boolean searchForJustGetter){
         Map<String, Field> map = getMapOfTargetFields(cls.getSimpleName());
         for(String name : map.keySet()){
             Field fl = map.get(name);
@@ -1052,51 +1104,90 @@ public class IkizIdare{
     private void callIsntCompleted(String callFrom, Object entity, String tableName){
         System.out.println(callFrom + " yöntemi çalıştırılırken oluştu;\n" + tableName + "isimli nesneye erişim sağlanamadı;\n");
     }
-    private <T> T assignAttributes(Class<T> cls, Map<String, Object> mapAttributes, boolean useGivenInstance, T instance){//Hatâlardan sonra nasıl idâre edildiğiyle ilgili bir şey yok
-        mapAttributes = convertJSONTextToMapOfVariables(mapAttributes, cls.getSimpleName());
+    private <T> T assignAttributes(Class<T> cls, Map<String, Object> mapAttributes, boolean useGivenInstance, T instance, boolean convertData){
+        // convertData : İkiz tarafından uygulanan JSON veri saklama gibi özellikler
+        // gereği JSON'dan diziye, listeye vs. dönüşüm gibi işlemlerin uygulanması
+        // gerekip, gerekmediğini belirten parametredir.
+        if(convertData)
+            mapAttributes = convertJSONTextToMapOfVariables(mapAttributes, cls.getSimpleName());
         T injected = null;
         if(useGivenInstance && instance != null){
             injected = Reflector.getService().injectData(instance, mapAttributes, this.confs.codingStyleForGetterSetter);
         }
         else{
-            injected = Reflector.getService().pruduceNewInjectedObject(cls, mapAttributes, this.confs.codingStyleForGetterSetter);
+            injected = Reflector.getService().produceInjectedObject(cls, mapAttributes, this.confs.codingStyleForGetterSetter);
         }
         return injected;
+    }
+    private <T> T assignAttributes(Class<T> cls, Map<String, Object> mapAttributes, boolean useGivenInstance, T instance){//Hatâlardan sonra nasıl idâre edildiğiyle ilgili bir şey yok
+        return assignAttributes(cls, mapAttributes, useGivenInstance, instance, true);
+    }
+    /*[$  yap */private Map<String, Object> convertJSONTextToMapOfVariables(Map<String, Object> data, Map<String, Class<?>> targetFields){
+        if(data == null)
+            return null;
+        if(targetFields == null)
+            return null;
+        Map<String, Object> result = new HashMap<String, Object>();
+        Iterator<Class<?>> iterOnValues = targetFields.values().iterator();
+        for(String fieldName : targetFields.keySet()){
+            Object fieldData = data.get(fieldName);
+            Class<?> fieldType = iterOnValues.next();
+            if(fieldData == null){
+                result.put(fieldName, fieldData);
+                continue;
+            }
+            HashMap<String, Boolean> analysis = isArrayOrCollection(fieldType);
+            if(analysis.get("result")){
+                if(fieldData instanceof String){
+                    Object newValue = null;
+                    if(analysis.get("isArray") || analysis.get("isList")){
+                        List<Object> listOfData = JSONReader.getService().readJSONArray((String) fieldData);
+                        if(analysis.get("isArray")){
+                            newValue = Reflector.getService().produceInjectedArray(fieldType, listOfData, true, false);
+                        }
+                        else if(analysis.get("isList") || analysis.get("isCollection")){
+                            newValue = Reflector.getService().produceInjectedList(listOfData);
+                            if(analysis.get("isCollection")){// Liste dışında bir koleksiyon ise;
+                                Collection cn = null;
+                                Object instance = Reflector.getService().produceInstance(fieldType);
+                                if(instance != null){
+                                    try{
+                                        cn = (Collection) instance;
+                                        cn.addAll((List) newValue);
+                                        newValue = cn;
+                                    }
+                                    catch(ClassCastException exc){
+                                        System.err.println("Koleksiyon oluşturma / zerk hatâsı : " + exc.toString());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if(analysis.get("isMap")){
+                        Map<String, Object> mapOfData = JSONReader.getService().readJSONObject((String) fieldData);
+                        newValue = mapOfData;
+                    }
+                    //.;.
+                    result.put(fieldName, newValue);
+                }
+            }
+            else
+                result.put(fieldName, fieldData);
+            // Sonraki sürümlerde kullanıcı tanımlı veri tipleri için de dönüşüm eklenmesi gerekebilir.
+        }
+        return result;
     }
     private Map<String, Object> convertJSONTextToMapOfVariables(Map<String, Object> map, String tableName){
         if(map == null)
             return null;
         Map<String, Field> mapOfFields = getMapOfTargetFields(tableName);
+        Map<String, Class<?>> mapOfTargetFields = new HashMap<String, Class<?>>();
         for(Field fl : mapOfFields.values()){
-            HashMap<String, Boolean> analysis = isListOrMapOrArray(fl.getType());
-            if(analysis.get("result")){
-                Object value = map.get(fl.getName());
-                if(value != null){
-                    if(value instanceof String){
-                        Object newValue = null;
-                        if(analysis.get("isArray") || analysis.get("isList")){
-                            List<Object> listOfData = JSONReader.getService().readJSONArray((String) value);
-                            if(analysis.get("isArray")){
-                                newValue = Reflector.getService().produceNewArrayInjectDataReturnAsObject(fl.getType(), listOfData);
-                            }
-                            else if(analysis.get("isList")){
-                                newValue = Reflector.getService().produceNewInjectedList(listOfData);
-                            }
-                        }
-                        else if(analysis.get("isMap")){
-                            Map<String, Object> mapOfData = JSONReader.getService().readJSONObject((String) value);
-                            newValue = mapOfData;
-                        }
-                        //.;.
-                        map.put(fl.getName(), newValue);
-                    }
-                }
-            }
-            // Sonraki sürümlerde kullanıcı tanımlı veri tipleri için de dönüşüm eklenmesi gerekebilir.
+            mapOfTargetFields.put(fl.getName(), fl.getType());
         }
-        return map;
+        return convertJSONTextToMapOfVariables(map, mapOfTargetFields);
     }
-    private boolean isBasicType(Class type){
+    private boolean isBasicType(Class<?> type){
         return isBasicType(type.getName());
     }
     private boolean isBasicType(String nameOfClass){
@@ -1106,31 +1197,39 @@ public class IkizIdare{
         }
         return false;
     }
-    private HashMap<String, Boolean> isListOrMapOrArray(Class cls){
+    private HashMap<String, Boolean> isArrayOrCollection(Class<?> cls){
         HashMap<String, Boolean> res = new HashMap<String, Boolean>();
         res.put("result", Boolean.FALSE);
         res.put("isArray", Boolean.FALSE);
         res.put("isList", Boolean.FALSE);
         res.put("isMap", Boolean.FALSE);
+        res.put("isCollection", Boolean.FALSE);
         if(cls.isArray()){
             res.put("result", Boolean.TRUE);
             res.put("isArray", Boolean.TRUE);
             return res;
         }
         try{
-            Class casted = cls.asSubclass(List.class);
+            Class<?> casted = cls.asSubclass(List.class);
             res.put("result", Boolean.TRUE);
             res.put("isList", Boolean.TRUE);
         }
-        catch(Exception exc){// Eğer List'e dönüştürme işlemi başarısız olursa Map'e dönüştürmeye çalış
+        catch(ClassCastException exc){// Eğer List'e dönüştürme işlemi başarısız olursa Map'e dönüştürmeye çalış
             //System.err.println("Hatâ (IkizIdare.isListOrMapOrArrayType()) : " + exc.toString());
             try{
-                Class otherCasted = cls.asSubclass(Map.class);
+                Class<?> otherCasted = cls.asSubclass(Map.class);
                 res.put("result", Boolean.TRUE);
                 res.put("isMap", Boolean.TRUE);
             }
-            catch(Exception inExc){
-                System.out.println("Hatâ (IkizIdare.isListOrMapOrArrayType().catch()) : " + inExc.toString());
+            catch(ClassCastException inExc){
+                try{
+                    Class<?> collection = cls.asSubclass(Collection.class);
+                    res.put("result", Boolean.TRUE);
+                    res.put("isCollection", Boolean.TRUE);
+                }
+                catch(ClassCastException lastExc){
+//                        System.out.println("Hatâ (IkizIdare.isListOrMapOrArrayType().catch()) : " + inExc.toString());
+                }
             }
         }
         return res;
@@ -1138,13 +1237,13 @@ public class IkizIdare{
     private String getJSONStringFromObject(Object obj){// Verilen nesne için JSON String üret; JSON'dan bir farkı var: anahtarlar String olmak zorunda değil
         if(obj == null)
             return null;
-        Class dType = obj.getClass();
+        Class<?> dType = obj.getClass();
         if(dType == String.class)// Veri tipi metîn ise;
             return "\"" + String.valueOf(obj) + "\"";
         JSONWriter jsonWrt = new JSONWriter();
         String result = null;
         result = jsonWrt.produceText(null, obj);// dizi veyâ harita veyâ liste için JSON metni üret
-        System.out.println("Üretilen metîn:\n" + result);
+//        System.out.println("Üretilen metîn:\n" + result);
         return result;
     }
     private Object getValueOfField(Object entity, Field field){
@@ -1186,7 +1285,7 @@ public class IkizIdare{
             if(value == null)// Değer null ise veri tipi tespitine ihtiyaç yok / yapılamaz.
                 continue;
             if(!isBasicType(value.getClass())){
-                Map<String, Boolean> analysis = isListOrMapOrArray(value.getClass());
+                Map<String, Boolean> analysis = isArrayOrCollection(value.getClass());
                 if(analysis.get("result")){// Dizi, liste veyâ harita verisi ise;
                     if(this.confs.getPolicyForListArrayMapFields() != Confs.POLICY_FOR_LIST_MAP_ARRAY.DONT_TAKE){
                         JSONWriter wrt = new JSONWriter();
@@ -1243,7 +1342,7 @@ public class IkizIdare{
                     Map<String, Field> targetFields = (isInIkiz ? md.getMapOfTargetFields() : convertListOfFieldsToMapOfFields(Reflector.getService().getSpecifiedFields(target, null)));
                     for(String s : targetFields.keySet()){// Liste - Map - Dizi alanlarını keşfet
                         Field fl = targetFields.get(s);
-                        Map<String, Boolean> analysis = isListOrMapOrArray(fl.getType());
+                        Map<String, Boolean> analysis = isArrayOrCollection(fl.getType());
                         if(analysis.get("result")){
                             specialFields.add(fl);
                         }
@@ -1296,10 +1395,26 @@ public class IkizIdare{
                 if(fieldValue != null){
                     try{
                         T casted = classOfField.cast(fieldValue);
+                        // [$ hedef tipe verinin zerk edilmesini engelleyici durum
+                        // olabilir, misal, hedef tip dizi ve veri de JSON ise..
                         values.add(casted);
                     }
                     catch(ClassCastException exc){
-                        System.err.println("exc. : : " + exc.toString());
+//                        System.err.println("exc. : : " + exc.toString());
+                        Map<String, Object> raw = new HashMap<String, Object>();
+                        raw.put(field, fieldValue);
+                        Map<String, Class<?>> targetAsMap = new HashMap<String, Class<?>>();
+                        targetAsMap.put(classOfField.getSimpleName(), classOfField);
+                        Map<String, Object> converted = convertJSONTextToMapOfVariables(raw, targetAsMap);
+                        if(converted != null){
+                            try{
+                                values.add((T) converted.values().iterator().next());
+                            }
+                            catch(ClassCastException | NullPointerException excOnSpecialField){
+                                System.err.println("(JSON olarak ele alınan) veri özel alana (harita (Map), liste, koleksiyon veyâ dizi) çevrilememiş:\t" + excOnSpecialField);
+                            }
+                        }
+                        //[$ Yukarıdaki kod eklendi, sistemde istenen sağlandı mı?
                     }
                 }
             }
@@ -1350,13 +1465,14 @@ public class IkizIdare{
             if(fieldNames.isEmpty())
                 return null;
         String tableName = target.getSimpleName();
-        boolean isInIkiz = !isInIkiz(target);
+        boolean isInIkiz = isInIkiz(target);
         if(this.confs.bufferMode && !forcePullFromDB && isInIkiz){// Bu şart kaldırıldı : && getIkizMunferid().isIndexedBefore(target)
             if(fieldNames == null){// Bu şart, parçalı veri çekme durumunda önbellekten veri çekilmemesini sağlamak için var
                 List<? extends Object> data = getBufferTables().get(tableName);
                 if(data != null)
                     return data;
             }
+            // [$ Tampona alınan veriden istenen verileri döndür (dönüştürülmüş olarak)
         }
         if(fieldNames == null){// Eğer sütun isimleri verilmediyse tüm sütun isimlerini al
             fieldNames = new ArrayList<String>();
@@ -1464,11 +1580,11 @@ public class IkizIdare{
         //GEÇİCİ:
         return null;
     }
-    private Class getSuitableClassOnTheList(String simpleNameOfClass, List<String> fieldNames){// Aynı isimde birden fazla sınıf varsa, uygun olanını getirmek için..
+    private Class<?> getSuitableClassOnTheList(String simpleNameOfClass, List<String> fieldNames){// Aynı isimde birden fazla sınıf varsa, uygun olanını getirmek için..
         if(loadedClasses == null)
             loadedClasses = Reflector.getService().getClassesOnTheAppPath();
-        List<Class> found = new ArrayList<Class>();
-        for(Class cls : loadedClasses){
+        List<Class<?>> found = new ArrayList<Class<?>>();
+        for(Class<?> cls : loadedClasses){
             if(cls.getSimpleName().equalsIgnoreCase(simpleNameOfClass)){
                 found.add(cls);
             }
@@ -1478,7 +1594,7 @@ public class IkizIdare{
         if(found.size() == 1)
             return found.get(0);
         else{
-            Class[] clss = new Class[found.size()];
+            Class<?>[] clss = new Class<?>[found.size()];
             found.toArray(clss);
             int[] pairedFieldNumber = new int[clss.length];
             for(int sayac = 0; sayac < clss.length; sayac++){
@@ -1505,7 +1621,7 @@ public class IkizIdare{
             return clss[indexOfMaxPaired];
         }
     }
-    private HashMap<String, Field> extractMapOfTargetFields(List<String> fieldNames, Class targetClass){
+    private HashMap<String, Field> extractMapOfTargetFields(List<String> fieldNames, Class<?> targetClass){
         if(targetClass == null || fieldNames == null)
             return null;
         HashMap<String, Field> value = new HashMap<String, Field>();
@@ -1530,40 +1646,116 @@ public class IkizIdare{
         }
         return value;
     }
-    private TableConfiguration getConfiguresOfTableFromDB(Class targetClass){
+    private TableConfiguration getConfiguresOfTableFromDB(Class<?> targetClass, Map<String, Field> mapOfTargets){
         if(targetClass == null)
             return null;
         String tableName = targetClass.getSimpleName();
+        String autoIncrementedColName = null;//Otomatik artan alan tespit edildiğinde, sütun ismi bu değişkende saklanır
         TableConfiguration confsOfTable = new TableConfiguration(targetClass);
         try{
             DatabaseMetaData md = this.connectivity.getConnext().getMetaData();
-            ResultSet res = md.getColumns(this.connectivity.getConnext().getCatalog(), this.connectivity.getConnext().getSchema(), tableName, null);
+            String catalog = this.connectivity.getConnext().getCatalog();
+            String schema = this.connectivity.getConnext().getSchema();
+            ResultSet res = md.getColumns(catalog, schema, tableName, null);
+            HashMap<String, Integer> maxLengthOfStrings = new HashMap<String, Integer>();// Metîn sütunlarının azamî uzunluğu
+            HashMap<Integer, Integer> frequencyOfLens = new HashMap<Integer, Integer>();// Metîn sütun uzunluklarının frekansı
+            HashMap<String, Object> mapRealDefaultValues = new HashMap<String, Object>();// Varsayılan değerlerin gerçek hâli
             while(res.next()){
                 String colName = res.getString("COLUMN_NAME");
+                {// Metîn tipindeki alanlar için uzunluğu alma işlemi:
+                    if(this.getConnectivity().getHelperForDBType().isDefaultStringDataType(res.getString("TYPE_NAME"))){// Birden fazla metîn tipi desteklenmesi durumunda burası değiştirilmeli
+                        Integer maxLen = res.getInt("COLUMN_SIZE");
+                        if(maxLen != 0){
+                            maxLengthOfStrings.put(colName, maxLen);
+                            Integer frequency = frequencyOfLens.get(maxLen);
+                            if(frequency != null){
+                                frequencyOfLens.put(maxLen, frequency + 1);
+                            }
+                            else
+                                frequencyOfLens.put(maxLen, 1);
+                        }
+                    }
+                }
                 String isNullable = res.getString("NULLABLE");
                 String isAutoIncrement = res.getString("IS_AUTOINCREMENT");
                 String isGeneratedColumn = res.getString("IS_GENERATEDCOLUMN");
-                String colDefaultValue = res.getString("COLUMN_DEF");
+                Object colDefaultValue = res.getObject("COLUMN_DEF");
                 if(!isNullable.equals("NO"))
                     confsOfTable.addNotNullConstraint(colName);
-                if(!isAutoIncrement.equals("NO"))
-                    ;//.;.
-                if(colDefaultValue != null){
-                    if(!colDefaultValue.isEmpty()){
-                        ;//.;. Eğer gelen metîn tek tırnak içerisindeyse String tipindedir.
+                if(!isAutoIncrement.equalsIgnoreCase("NO"))// Otomatik artan alan tespit edildiyse
+                    autoIncrementedColName = colName;
+                
+                if(colDefaultValue != null){// Varsayılan değer ataması yapılmışsa..
+                    String typeName = res.getString("TYPE_NAME");
+//                    Class<?> target = this.connectivity.getHelperForDBType().getMatchedClassForGivenSqlType(typeName);// Hedef tip bu şekilde alınmamalı!
+                    Class<?> target = mapOfTargets.get(colName).getType();
+//                    System.out.println("\tVarsayılan değer, ilk karşılama : " + colDefaultValue
+//                    + "\t(" + target.getName() + " tipine çevrilmeli)");
+                    Object casted = Reflector.getService().getCastedObject(target, colDefaultValue);
+                    if(casted != null){
+                        mapRealDefaultValues.put(colName, casted);
+                    }
+//                    else{// Bilhassa dinamik ('generated') varsayılan değerler için ele alınmalı
+//                        
+//                    }
+                }
+            }
+            
+            {// Çekilebilen varsayılan değerleri ekle:
+                for(String col : mapRealDefaultValues.keySet()){
+                    confsOfTable.addDefaultValue(col, mapRealDefaultValues.get(col));
+                }
+            }
+            
+            {// Metîn uzunluklarına bakarak varsayılan metîn uzunluğunu,
+             // bunun değişip, değişmediğini çıkarmaya çalış
+                int lenAsDefault = 500;// Varsayılan metîn uzunluğu
+                if(frequencyOfLens.size() > 0){
+                    if(frequencyOfLens.size() == 1)// Tüm sütunların uzunluğu eşitse, varsayılan uzunluk odur
+                        confsOfTable.setDefaultLengthOfString(frequencyOfLens.keySet().iterator().next());
+                    else{
+                        for(String field : maxLengthOfStrings.keySet())
+                            confsOfTable.setLengthOfString(field, maxLengthOfStrings.get(field));
                     }
                 }
             }
-            ResultSet primaries = md.getPrimaryKeys(this.connectivity.getConnext().getCatalog(), this.connectivity.getConnext().getSchema(), tableName);
+            
+            ResultSet primaries = md.getPrimaryKeys(catalog, schema, tableName);
             while(primaries.next()){
                 String pkInfo = primaries.getString("PK_NAME");
                 if(pkInfo != null){
-                    if(pkInfo.equals("PRIMARY"))
-                        confsOfTable.setPrimaryKey(primaries.getString("COLUMN_NAME"));
+                    String pkName = primaries.getString("COLUMN_NAME");
+                    confsOfTable.setPrimaryKey(primaries.getString("COLUMN_NAME"));
+                    if(autoIncrementedColName != null){
+                        if(pkName.equals(autoIncrementedColName))
+                            confsOfTable.setPrimaryKeyAutoIncremented();
+                    }
                 }
             }
-            // Al : indeks
-//            md.getIndexInfo("", "", "", true, true);
+            ResultSet uniques = md.getIndexInfo(catalog, schema, tableName, false, false);
+            HashMap<String, Integer> listOfAdding = new HashMap<String, Integer>();// <indeksIsmi, sonuç setinde bulunma sayısı>
+            HashMap<String, String> uniqueIndexes = new HashMap<String, String>();// <indeksIsmi, indeksin bulunduğu sütun>
+            while(uniques.next()){
+                String colName = uniques.getString("COLUMN_NAME");
+                String indexName = uniques.getString("INDEX_NAME");
+//                boolean nonUnique = uniques.getBoolean("NON_UNIQUE");// Zâten yukarıda UNIQUE olanlar alınıyor
+                Integer count = listOfAdding.get(indexName);
+                if(count != null)
+                    listOfAdding.put(indexName, count + 1);
+                else
+                    listOfAdding.put(indexName, 1);
+                uniqueIndexes.put(indexName, colName);
+//                System.out.println("\tindeksIsmi : " + indexName + "\t" + "sütun:" + colName + "\tNonUnique : " + nonUnique);
+            }
+            for(String indexName : uniqueIndexes.keySet()){
+                if(listOfAdding.get(indexName) == 1){
+                    confsOfTable.addUniqueConstraint(uniqueIndexes.get(indexName));
+                }
+            }
+            {// Uyumsuz (sorgu metni biçiminde) olabilecek varsayılan değerleri veritabanına gönder
+             // gelen sonuçları ilgili veri tipine çevir ve ata
+                
+            }
             // Al : charset
             // Şu an desteklenmiyor:
 //            md.getExportedKeys("", "", "");
@@ -1571,23 +1763,37 @@ public class IkizIdare{
         catch(SQLException exc){
             System.err.println("exc : " + exc.toString());
         }
+        confsOfTable.setIsTableCreated(this, true);
         return confsOfTable;
     }
     private Object convertJSONtoTarget(String jsonText, Field targetField){
-        return convertJSONtoTarget(jsonText, targetField, isListOrMapOrArray(targetField.getType()));
+        return convertJSONtoTarget(jsonText, targetField, isArrayOrCollection(targetField.getType()));
     }
     private Object convertJSONtoTarget(String jsonText, Field targetField, Map<String, Boolean> analysisFromIsListOrMapOrArray){
         Object value = null;
         if(analysisFromIsListOrMapOrArray.get("isMap")){
             Map<String, Object> data = JSONReader.getService().readJSONObject(jsonText);
-            value = Reflector.getService().pruduceNewInjectedObject(targetField.getType(), data, this.confs.codingStyleForGetterSetter);
+            value = Reflector.getService().produceInjectedObject(targetField.getType(), data, this.confs.codingStyleForGetterSetter);
         }
         else{
             List<Object> data = JSONReader.getService().readJSONArray(jsonText);
             if(analysisFromIsListOrMapOrArray.get("isArray"))
-                value = Reflector.getService().produceNewArrayInjectDataReturnAsObject(targetField.getType(), data);
-            else
-                value = Reflector.getService().produceNewInjectedList(data);
+                value = Reflector.getService().produceInjectedArray(targetField.getType(), data, true, false);
+            else if(analysisFromIsListOrMapOrArray.get("isArray") || analysisFromIsListOrMapOrArray.get("isCollection"))
+                value = Reflector.getService().produceInjectedList(data);
+            if(analysisFromIsListOrMapOrArray.get("isCollection")){
+                Collection cn = null;
+                try{
+                    cn = (Collection) Reflector.getService().produceInstance(targetField.getType());
+                    if(cn != null){
+                        cn.addAll((Collection) value);
+                        value = cn;
+                    }
+                }
+                catch(ClassCastException | NullPointerException exc){
+                    System.err.println("Koleksiyona veri zerk edilirken hatâ alındı : " + exc.toString());
+                }
+            }
         }
         return value;
     }
@@ -1658,7 +1864,7 @@ public class IkizIdare{
     private TableMetadata extractTableMetadataFromJSON(String tableName, Map<String, Object> data){
         TableMetadata md = null;
         try{
-            Class targetClass = Class.forName((String) data.get("targetClass"));
+            Class<?> targetClass = Class.forName((String) data.get("targetClass"));
             TableConfiguration confsAsObj = new TableConfiguration(targetClass);// TableConfiguration nesnesini oluştur:
             confsAsObj.importConfigurations((Map<String, Object>) data.get("tableConfiguration"));
             List<Field> targetFields = Reflector.getService().getSpecifiedFields(targetClass, (List<String>) data.get("targetFieldNames"));// Hedef özelliklerin listesini al
@@ -1683,17 +1889,30 @@ public class IkizIdare{
     }
 
 //ERİŞİM YÖNTEMLERİ:
+    /**
+     * İşlemleri yürütebilmek için oluşturulan {@code IkizIdare}'yi döndürür
+     * @return Sistem başlatıldıysa {@code IkizIdare}, aksi hâlde {@code null}
+     */
     public static IkizIdare getIkizIdare(){
         return ikiz;
     }
+    /**
+     * Bağlantıyı ve bağlantıyla ilgili diğer nesneleri, işlemleri ifâde eden
+     * {@code Cvity} nesnesini döndürür.
+     * @return İkiz'in kullandığı bağlantıyı barındıran {@code Cvity} nesnesi
+     */
     public Cvity getConnectivity(){
         return connectivity;
     }
-    public ErrorTable getErrorTable(){
-        if(errorTable == null)
-            errorTable = new ErrorTable();
-        return errorTable;
-    }
+//    public ErrorTable getErrorTable(){
+//        if(errorTable == null)
+//            errorTable = new ErrorTable();
+//        return errorTable;
+//    }
+    /**
+     * İkiz sistemine dâhil edilen tabloların isimlerini dizi olarak döndürür.
+     * @return İkiz'in üzerinde çalıştığı tablo isimleri
+     */
     public String[] getWorkingTablesAsArray(){
         int num = getWorkingTables().size();
         if(num == 0)
@@ -1716,7 +1935,7 @@ public class IkizIdare{
         }
         return null;
     }
-    private HashMap<String, TableMetadata> getMetadataOfTables(){
+    /*]$ burayı private yap*/private HashMap<String, TableMetadata> getMetadataOfTables(){
         if(metadataOfTables == null)
             metadataOfTables = new HashMap<String, TableMetadata>();
         return metadataOfTables;

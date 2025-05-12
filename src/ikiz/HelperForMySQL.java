@@ -1,5 +1,6 @@
 package ikiz;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 
 public class HelperForMySQL implements HelperForDBType{
@@ -77,5 +78,50 @@ public class HelperForMySQL implements HelperForDBType{
     @Override
     public String getDatabaseProductName(){
         return "MySQL";
+    }
+    @Override
+    public boolean isDefaultStringDataType(String typeName){
+        if(typeName == null)
+            return false;
+        return typeName.equalsIgnoreCase(this.dataTypes.get("java.lang.String").split("\\(")[0]);
+    }
+    @Override
+    public Class<?> getMatchedClassForGivenSqlType(String sqlTypeName){
+        if(sqlTypeName == null)
+            return null;
+        if(sqlTypeName.isEmpty())
+            return null;
+        ArrayList<String> founds = new ArrayList<String>();
+        for(String atJava : dataTypes.keySet()){
+            if(dataTypes.get(atJava).split("\\(")[0].equalsIgnoreCase(sqlTypeName))
+                founds.add(atJava);
+        }
+        if(founds.isEmpty())
+            return null;
+        String found = founds.get(0);
+        if(founds.size() > 1){
+            for(String type : founds){
+                if(type.startsWith("java.lang."))
+                    found = type;
+                else if(type.startsWith("java.time."))
+                    found = type;
+            }
+        }
+        Class<?> asClass = null;
+        try{
+            asClass = Class.forName(found);
+        }
+        catch(ClassNotFoundException exc){
+            System.err.println("exc : " + exc.toString());
+        }
+        return asClass;
+    }
+    @Override
+    public String getAutoIncrementKeyword(){
+        return "AUTO_INCREMENT";
+    }
+    @Override
+    public String getQueryForLastInsertedID(){
+        return "SELECT LAST_INSERT_ID();";
     }
 }

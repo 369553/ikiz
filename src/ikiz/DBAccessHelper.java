@@ -1,5 +1,6 @@
 package ikiz;
 
+import ReflectorRuntime.Reflector;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -63,23 +64,159 @@ public class DBAccessHelper implements IDBAccessHelper{
         }
         return fieldNames;
     }
-    public void testPrimaries(String tableName){
-        try{
-            Statement st = this.connectivity.getConnext().createStatement();
-            DatabaseMetaData md = this.connectivity.getConnext().getMetaData();
-            ResultSet primaries = md.getPrimaryKeys(this.connectivity.getConnext().getCatalog(), this.connectivity.getConnext().getSchema(), tableName);
-            while(primaries.next()){
-                String name = primaries.getString("COLUMN_NAME");
-                if(name != null)
-                    System.out.println("name : " + name);
-                String pkName = primaries.getString("PK_NAME");
-                if(pkName != null)
-                    System.out.println("PK_NAME : " + pkName);
+    /**
+     * {@code java.sql.PreparedStatement} için hâzırlanan, parametrelerin
+     * yerine '?' konulmuş SQL metnindeki '?' yerine değeri konur;
+     * Parametreler sorgudaki sırayla uyumlu olmalıdır; çünkü sırasıyla konur
+     * Bu fonksiyon, yerine konulacak parametreleri SQL'e uygun biçimde koyar
+     * - Parametre {@code null} ise {@code NULL} değeri konur
+     * - Metînler tek tırnak içerisine alınır
+     * - {@code Character} verisi tek tırnak içerisine alınır
+     * - {@code Boolean} değerler 1 ve 0 olarak konur
+     * - Târih - saat SQL uyumlu formata çevrilir
+     * - {@code Enum} verisi ({@code toString()}) tek tırnak içerisine alınır
+     * - Diğer durumlarda nesnenin {@code toString()} değeri alınır (tırnak eklenmez)
+     * NOT: Dizi biçimindeki değerler ayrıştırılmaz
+     * NOT: Zamân verisi şu tiplerden birisi olabilir:
+     * - {@code java.time.LocalDateTime}
+     * - {@code java.time.LocalDate}
+     * - {@code java.time.LocalTime}
+     * - {@code java.util.Date}
+     * NOT: Zamân verisi uyumsuzsa, yerine NULL değeri konur
+     * NOT: Fonksiyon, parametre konulmamış sorgu metînleri için uygundur;
+     * Eğer sorgu metni içerisinde '?' varsa bu fonksiyon hatâlı sonuç üretir!
+     * @param queryAsPrepared {@code PreparedStatement} biçiminde SQL sorgu metni
+     * @param parameters Sorguya zerk (enjekte) edilmek istenen değişkenler
+     * @return Parametrelerin zerk edildiği saf SQL metni
+     */
+    public String getFinalSQLQuery(String queryAsPrepared, Object[] parameters){
+        List<String> paramsAsSuitable = new ArrayList<String>();
+        for(int sayac = 0; sayac < parameters.length; sayac++){
+            if(parameters[sayac] == null){
+                parameters[sayac] = "NULL";
+                continue;
+            }
+            Class<?> src = parameters[sayac].getClass();
+            if(src.equals(String.class) || src.equals(Character.class) || src.isEnum()){
+                parameters[sayac] = ("'"
+                        + addEscapeCharacterForQuotes(String.valueOf(parameters[sayac]))
+                        + "'");
+            }
+            else if(src.getName().equals("java.time.LocalDateTime")
+                || src.getName().equals("java.time.LocalDate")
+                || src.getName().equals("java.time.LocalTime")
+                || src.getName().equals("java.util.Date")){
+                String asSQLStyle = Reflector.getService().getDateTimeTextAsSQLStyle(parameters[sayac]);
+                if(asSQLStyle == null)
+                    parameters[sayac] = "NULL";
+                else
+                    parameters[sayac] = ("'"
+                        + asSQLStyle
+                        + "'");
+            }
+            else if(src.equals(Boolean.class)){
+                parameters[sayac] = (((boolean) parameters[sayac]) ? "1" : "0");
             }
         }
-        catch(SQLException exc){
-            System.err.println("exc : " + exc.toString());
+        StringBuilder bui = new StringBuilder();
+        char[] tx = queryAsPrepared.toCharArray();
+        int sayac = 0;
+        for(char c : tx){
+            if(c == '?'){
+                if(sayac < parameters.length){
+                    bui.append(String.valueOf(parameters[sayac]));
+                    sayac++;
+                }
+            }
+            else
+                bui.append(c);
         }
+        return bui.toString();
+    }
+    /**
+     * Saf SQL sorgusu çalıştırır
+     * Desteklenen yöntemler JDBC {@code Statement} nesnesinin şu metodlarıdır:<br>
+     * - executeQuery(String sql) : ResultSet<br>
+     * - executeUpdate(String sql) : int<br>
+     * - execute(String sql) : boolean<br>
+     * SQL sorgusunun hangi yöntemle çalıştırıldığında nasıl tepki verdiğini
+     * bilmeniz gerekiyor
+     * Misal, "TRUNCATE TABLE tablo;" komutu tüm tabloyu boşaltmasına rağmen
+     * {@code executeUpdate()} ile çalıştırıldığında etkilenen satır sayısı
+     * sıfır olarak döndürülür
+     * Çekilen verinin sütun ismi yoksa, sütun ismi sütun sıra numarası yapılır
+     * @param query Çalıştırılmak istenen SQL sorgusu
+     * @param execToFetchData Veri çekmek isteniyorsa {@code true} verilmelidir
+     * @param executeUpdate Sorgu, veri çekmek için değilse, çalıştırılacak
+     * fonksiyon bu parametreye bakılarak belirlenir
+     * Bu parametre {@code true} ise {@code executeUpdate()} çalıştırılır,
+     * aksi hâlde {@code execute()} fonksiyonu çalıştırılır
+     * @return {@code execToFetchData} {@code true} ise ve işlem başarılıysa
+     * verileri {@code ArrayList} olarak döndürür, her veri bir {@code HashMap}
+     * içerisindedir; anahtar sütun ismidir, değer o satırdaki sütun değeridir
+     * {@code null} veriler de bu özellik haritasına eklenir
+     * Veri çekme işlemi başarısızsa {@code false} döndürülür
+     * İşlem başarılı; ama veri yoksa boş bir {@code ArrayList} döndürülür
+     * {@code execToFetchData} {@code false} ve {@code executeUpdate} {@code true} ise
+     * işlemden etkilenen satır varsa {@code true}, yoksa {@code false} döndürülür
+     * {@code execToFetchData} {@code false} ve {@code executeUpdate} {@code false} ise
+     * sorgunun çalıştırılma başarısını döndürür
+     * Hatâlı parametre gönderilirse {@code null} döndürülür
+     */
+    protected Object execRawQuery(String query, boolean execToFetchData, boolean executeUpdate){
+        return execRawQuery(query, execToFetchData, executeUpdate, false, null);
+    }
+    /**
+     * Saf SQL sorgusunu verilen {@code Statement} nesnesiyle çalıştırır
+     * Desteklenen yöntemler JDBC {@code Statement} nesnesinin şu metodlarıdır:<br>
+     * - executeQuery(String sql) : ResultSet<br>
+     * - executeUpdate(String sql) : int<br>
+     * - execute(String sql) : boolean<br>
+     * SQL sorgusunun hangi yöntemle çalıştırıldığında nasıl tepki verdiğini
+     * bilmeniz gerekiyor
+     * Misal, "TRUNCATE TABLE tablo;" komutu tüm tabloyu boşaltmasına rağmen
+     * {@code executeUpdate()} ile çalıştırıldığında etkilenen satır sayısı
+     * sıfır olarak döndürülür
+     * Çekilen verinin sütun ismi yoksa, sütun ismi sütun sıra numarası yapılır
+     * @param query Çalıştırılmak istenen SQL sorgusu
+     * @param execToFetchData Veri çekmek isteniyorsa {@code true} verilmelidir
+     * @param executeUpdate Sorgu, veri çekmek için değilse, çalıştırılacak
+     * fonksiyon bu parametreye bakılarak belirlenir
+     * Bu parametre {@code true} ise {@code executeUpdate()} çalıştırılır,
+     * aksi hâlde {@code execute()} fonksiyonu çalıştırılır
+     * @param st Sorgunun çalıştırılması istenen {@code Statement} nesnesi
+     * @return {@code execToFetchData} {@code true} ise ve işlem başarılıysa
+     * verileri {@code ArrayList} olarak döndürür, her veri bir {@code HashMap}
+     * içerisindedir; anahtar sütun ismidir, değer o satırdaki sütun değeridir
+     * {@code null} veriler de bu özellik haritasına eklenir
+     * Veri çekme işlemi başarısızsa {@code false} döndürülür
+     * İşlem başarılı; ama veri yoksa boş bir {@code ArrayList} döndürülür
+     * {@code execToFetchData} {@code false} ve {@code executeUpdate} {@code true} ise
+     * işlemden etkilenen satır varsa {@code true}, yoksa {@code false} döndürülür
+     * {@code execToFetchData} {@code false} ve {@code executeUpdate} {@code false} ise
+     * sorgunun çalıştırılma başarısını döndürür
+     * Hatâlı parametre gönderilirse {@code null} döndürülür
+     */
+    public Object execRawQuery(String query, boolean execToFetchData, boolean executeUpdate, Statement st){
+        return execRawQuery(query, execToFetchData, executeUpdate, true, st);
+    }
+    /**
+     * Metîn içerisindeki tek tırnak ve çift tırnak işâretinin öncesine kaçış
+     * karakteri konur
+     * @param value Metîn
+     * @return Tırnak işâretlerinden önce kaçış karakteri konulmuş metîn
+     */
+    public String addEscapeCharacterForQuotes(String value){
+        if(value == null)
+            return null;
+        char[] tx = value.toCharArray();
+        StringBuilder bui = new StringBuilder();
+        for(char c : tx){
+            if(c == '\'' || c == '"')
+                bui.append("\\");
+            bui.append(c);
+        }
+        return bui.toString();
     }
     @Override
     public boolean deleteRow(String tableName, String whereCondition, Object answerOfWhereCondition){
@@ -188,7 +325,7 @@ public class DBAccessHelper implements IDBAccessHelper{
             }
         }
         sqlOrder.append(";");
-        System.err.println("sorgu : " + sqlOrder.toString());
+//        System.err.println("Sorgu : " + sqlOrder.toString());
         try{
             PreparedStatement preSt = connectivity.getConnext().prepareStatement(sqlOrder.toString());
             int injected = 0;
@@ -222,7 +359,7 @@ public class DBAccessHelper implements IDBAccessHelper{
                     preSt.setObject(injected + sayac + 1, value);
             }
             int numberOfUpdated = preSt.executeUpdate();
-            System.out.println("Şu kadar satır tazelendi : " + numberOfUpdated);
+//            System.out.println("Şu kadar satır tazelendi : " + numberOfUpdated);
             return (numberOfUpdated > 0);
         }
         catch(SQLException exc){
@@ -324,6 +461,62 @@ public class DBAccessHelper implements IDBAccessHelper{
         }
         catch(SQLException exc){
             System.err.println("exc : " + exc.toString());
+        }
+        return false;
+    }
+    // ARKAPLAN İŞLEM YÖNTEMLERİ:
+    private Object execRawQuery(String query, boolean execToFetchData, boolean executeUpdate, boolean useGivenStatement, Statement st){
+        if(query == null)
+            return null;
+        if(query.isEmpty())
+            return null;
+        if(useGivenStatement){
+            if(st == null)
+                return null;
+//            else{// Güvenlik amaçlı düşünülmüştü; fakat uygun değil, farklı bir yöntem bul
+//                try{
+//                    if(st.getConnection() != this.connectivity)
+//                    return null;
+//                }
+//                catch(SQLException exc){
+//                    System.err.println("Bağlantı denetimi yapılırken hatâ oluştu; sorgu çalıştırılmıyor: " + exc.toString());
+//                }
+//            }
+        }
+        try{
+            st = (useGivenStatement ? st : this.connectivity.getConnext().createStatement());
+            if(execToFetchData){
+                ArrayList<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+                ResultSet res = st.executeQuery(query);
+                int colCount = res.getMetaData().getColumnCount();
+                while(res.next()){
+                    HashMap<String, Object> values = new HashMap<String, Object>();
+                    for(int sayac = 0; sayac < colCount; sayac++){
+                        boolean takeByOrderNumber = false;
+                        String key = res.getMetaData().getColumnName(sayac + 1);
+                        if(key == null)
+                            takeByOrderNumber = true;
+                        else if(key.isEmpty())
+                            takeByOrderNumber = true;
+                        if(!takeByOrderNumber)
+                            values.put(key, res.getObject(key));
+                        else
+                            values.put(String.valueOf(sayac + 1), res.getObject(sayac + 1));
+                    }
+                    rows.add(values);
+                }
+                return rows;
+            }
+            else if(executeUpdate){
+                return (st.executeUpdate(query) > 0);
+            }
+            else{
+                st.execute(query);
+                return true;
+            }
+        }
+        catch(SQLException | NullPointerException exc){
+            System.err.println("Saf sorgu çalıştırılırken hatâ oluştu : " + exc.toString());
         }
         return false;
     }
