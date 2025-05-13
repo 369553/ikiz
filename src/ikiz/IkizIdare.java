@@ -631,7 +631,7 @@ public class IkizIdare{
             if(confOfTable.getIsConfSet().get("primaryKey")){
                 String primaryKey = confOfTable.getPrimaryKey();
                 List<T> rows = getDataByFieldMain(target, primaryKey, primaryKeyValue, true);
-                System.err.println("]$ tersi, alınan verilerin ilki : " + rows.get(0));
+//                System.err.println("]$ tersi, alınan verilerin ilki : " + rows.get(0));
                 if(rows != null){
                     if(!rows.isEmpty())
                         value = rows.get(0);
@@ -1920,6 +1920,9 @@ public class IkizIdare{
         String[] list = new String[num];
         getWorkingTables().toArray(list);
         return list;
+    }
+    public Confs getConfs(){
+        return this.confs;
     }
     //GİZLİ ERİŞİM YÖNTEMLERİ:
     private Map<String, Field> getMapOfTargetFields(String tableName){

@@ -176,7 +176,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         if(attributesPolicy == null){
             attributesPolicy = new HashMap<>();
             attributesPolicy.put("public", true);
-            attributesPolicy.put("private", false);
+            attributesPolicy.put("private", true);
             attributesPolicy.put("default", true);
             attributesPolicy.put("protected", true);
         }
