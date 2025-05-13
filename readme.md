@@ -205,7 +205,27 @@
 
 - Veritabanında JSON verisi olarak saklanan alanlarınız uygulamaya hedef veri tipine çevrilerek getirilir.
 
-- Sınıf alanlarınızın hangi erişim belirteciyle belirtilenlerin alınacağını İkiz yapılandırmasından değiştirebilirsiniz; varsayılan olarak tüm erişim belirteciyle tanımlanan alanlar alınır.
+- İkiz, alan verilerini alırken öncelikle `java.lang.reflect` arayüzünü kullanarak alanı temsîl eden `Field` nesnesi üzerinden veriye erişmeye çalışır. Eğer alanınızın erişim belirteci buna izin vermiyorsa, İkiz alan verisini alabilmek için kendi yapılandırmasında belirtilen kodlama biçimine göre (`ReflectorRuntime.Reflector.CODING_STYLE`) 'getter' metodunu arar ve onu çalıştırarak alan verisini alır; eğer böyle bir metot yoksa, alan verisi alınamaz.
+
+- İkiz'in 'getter' ve 'setter' metotlarını ararken kullandığı kodlama biçimi varsayılan olarak camelCase kodlama biçimidir. Kodlama biçimini değiştirebilirsiniz; daha fazla bilgi için İkiz'in arkaplan işlemleri için yazdığım ReflectorRuntime kitâplığına bakınız.
+  
+  ```java
+  ikiz.getConfs().
+      setCodingStyleForGetterSetter(Reflector.CODING_STYLE.SNAKE_CASE);
+  // Yukarıdaki ayara göre İkiz, 'id' alanı için 'setter' metodunu
+  // 'set_id' ismiyle, 'getter' metodunu 'get_id' ismiyle arar
+  ```
+
+- Sınıf alanlarınızın hangi erişim belirteciyle belirtilenlerin alınacağını İkiz yapılandırmasından değiştirebilirsiniz; varsayılan olarak tüm erişim belirteciyle tanımlanan alanlar alınır. Erişim belirtecine göre alım yapılandırmasını değiştirebilirsiniz:
+  
+  ```java
+  ikiz.getConfs().setAttributesPolicyOneByOne(true, false, true, true);
+  // Fonksiyon imzası: public void setAttributesPolicyOneByOne(
+  // boolean takePublicFields, boolean takePrivateFields,
+  // boolean takeDefaultFields, boolean takeProtectedFields);
+  ```
+
+- ..
 
 ## Diğer Temel Veritabanı İşlemleri
 
@@ -225,21 +245,91 @@
      ikiz.getDataWithOneWhereCondition(Customer.class, "yearAtHere", 0);
   ```
 
-- Eğer tablonuzda bir birincil anahtar varsa, İkiz verilerinizin uygulama içerisinde münferid (tekil) olmasını sağlar. Bunun için önbellekleme modunu etkinleştirmelisiniz.
+- Eğer tablonuzda bir birincil anahtar varsa İkiz, verilerinizin uygulama içerisinde münferid (tekil) olmasını sağlar. Bunun için önbellekleme modunu etkinleştirmelisiniz.
+
+- Önbellekleme modunu şu şekilde etkinleştirebilirsiniz:
+  
+  ```java
+  ikiz.getConfs().setBufferMode(true);
+  ```
 
 - Eğer önbellekleme modu etkin ise, İkiz verilerinizi her seferinde veritabanından getirmek yerine önbellekten getirir.
 
-- .
+- Bu durumda, verilerinizin veritabanından taze çekilmesini isterseniz veritabanı - tablo eşleşmesi için şu metotları kullanabilirsiniz:
+  
+  ```java
+  ikiz.syncDataByPullFromDB(Customer.class);// Customer verisi tazelenir
+  ikiz.syncDataByPullFromDB();// Tüm veriler vt'den çekilirek tazelenir
+  ```
 
-- .
+- Tablonun sadece belli sütunlarının değerlerini çekebilirsiniz:
+  
+  ```java
+  List<Object> listOf = ikiz.getColumnValues(Customer.class, "name");
+  ```
+
+- Sütun verilerini yukarıdaki gibi çekerseniz, veriler dönüştürülmez ve veritabanı JDBC bağlayıcınız tarafından hangi tipte döndürülüyorsa, o tipte döndürülür; `null` veriler de getirilir.
+
+- Dilerseniz, verilerinizi almak istediğiniz hedef tipi belirtebilirsiniz:
+  
+  ```java
+  List<String> listOfNames = ikiz.getColumnValues(
+              Customer.class, "name", String.class);
+  // bu metot için sadece basit casting var;yarın düzeltilecek inşâAllâh
+  ```
+
+- Bu şekilde yaptığınızda `null` veriler getirilmez.
+
+- Birden fazla sütun verisini ham olarak (İkiz'in JSON dönüştürme, basit casting, gelişmiş casting yapıları kullanılmaz) çekmek isterseniz şu fonksiyonları kullanın:
+  
+  ```java
+  List<String> cols = new ArrayList<String>();
+  cols.add("name");
+  cols.add("surname");
+  List<Map<String, Object> values = ikiz.getValuesFromTable(
+                                     Customer.class, cols);
+  // Listenin her elemanı bir satırın anahtar - değer ikililerini tutar
+  // Bu örnekte sadece 'name' ve 'surname' alan değerleri tutulur.
+  ```
 
 #### 2) Veri Ekleme
 
 - Oluşturduğunuz bir nesneyi İkiz ile veritabanına eklemek basittir:
   
   ```java
-  ikiz.addRowToDB
+  Customer csm = new Customer();
+  boolean result = ikiz.addRowToDB(csm);
+  System.out.println("Veri ekleme başarı durumu : " + result);
   ```
+
+- Eğer `Customer` sınıfı İkiz'e kayıtlı ise, veriniz eklenir.
+
+- Gönderilen verinin alan değerleri, tablo oluşturulurken kullanılan `IkizIdare` yapılandırmasına göre alınır.
+
+- Hedef sınıfın alan değerleri alınırken aranması gereken 'getter' ve 'setter' metot isminin hangi kodlama biçimine göre yapılacağı İkiz yapılandırması üzerinden değiştirilebilir.
+
+#### 3) Veri ve Tablo Silme
+
+- İkiz ile bir veriyi silmek için silmek istediğiniz nesneyi hedef metoda vermeniz kâfî:
+  
+  ```java
+  boolean result = ikiz.deleteRowFromDB(csm);
+  System.out.println("Veri silme işlemi sonucu: " + result);
+  ```
+
+- Burada dikkat edilmesi gereken nokta, tablonun İkiz'in veriyi, diğer verilerden ayırt etmesini sağlayan bir yapıyı barındırması gerektiğidir. Buna göre bir satırı diğerlerinden ayıran birincil anahtar veyâ 'NOT NULL + UNIQUE' kısıtlarını taşıyan herhangi bir sütun olmayan tablodan müşahhas bir veri silemezsiniz.
+
+- Bilhassa verinin ayırt edilmesi meselesi sebebiyle İkiz'e kaydedilmeyen tablolardan veri silme işlemini bu metotla gerçekleştiremezsiniz.
+
+- Bir tabloyu veritabanından silmek için şu metodunu kullanın:
+  
+  ```java
+  ikiz.deleteTable(Customer.class);// Tablo ikiz'den ve vt'den silinir
+  ```
+
+- .
+
+#### 4) Veri Tazeleme
 
 - .
 
@@ -253,6 +343,6 @@
 
 - Tablo oluşturulduktan sonra tablo yapılandırması değiştirilemektedir.
 
-- SSL ile bağlanma için ayar belirtimi henüz yoktur.
+- SSL ile bağlanma için ayar belirtme desteği henüz yoktur.
 
 - .
