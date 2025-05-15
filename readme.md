@@ -24,17 +24,13 @@
   
   7. **CRUD işlemleri** : İkiz CRUD (Create-Update-Delete) işlemleri için yöntemler sağlar. İlgili nesnelerin sadece seçilen özelliklerinin veritabanına kaydedilmesi veyâ tüm alanların yeniden tazelenmesi gibi seçenekler sağlar.
   
-  8. **Gelişmiş sorgulama** : Onu daha yapmadık!.. Şu an için bir sütuna göre veyâ birincil anahtara göre veri sorgulaması yapılabiliyor.
+  8. **Performans odaklı sistem yapılandırması** : İkiz, hangi sınıfın hangi alanlarının verisinin kaydedileceği, veritabanından getirilen verinin hangi tipe çevrileceğiyle ilgili analizleri sürekli yapmak yerine bir sefer yapar ve kaydeder. Bu, sistem yapılandırma dosyası olarak dışarı aktarılabilir, uygulama yeniden başlatıldığında ilgili veri okunarak ayarlar yeniden içe aktarılabilir; belki daha da iyisi İkiz bu sistem yapılandırmasını veritabanını okuyarak çıkartabilir; bu ayarlar tablo kısıtları gibi sâir önverileri de kapsamaktadır (Saklı yordamları henüz desteklemiyoruz, tek kişilik ekibimiz var, o kadar hızlı değiliz!).
   
-  9. **Performans odaklı sistem yapılandırması** : İkiz, hangi sınıfın hangi alanlarının verisinin kaydedileceği, veritabanından getirilen verinin hangi tipe çevrileceğiyle ilgili analizleri sürekli yapmak yerine bir sefer yapar ve kaydeder. Bu, sistem yapılandırma dosyası olarak dışarı aktarılabilir, uygulama yeniden başlatıldığında ilgili veri okunarak ayarlar yeniden içe aktarılabilir; belki daha da iyisi İkiz bu sistem yapılandırmasını veritabanını okuyarak çıkartabilir; bu ayarlar tablo kısıtları gibi sâir önverileri de kapsamaktadır (Saklı yordamları henüz desteklemiyoruz, tek kişilik ekibimiz var, o kadar hızlı değiliz!).
+  9. **Dizi ve Koleksiyon Verilerinin Veritabanında Saklanması** : İkiz, uygulama içerisinde tanımlanan temel (`int`, `double`...) veyâ sarmalayıcı sınıfların (`Integer`, `Double`...) dizilerini, çok boyutlu dizilerini, `List` ve `Map` sınıfındaki verileri ve `Collection` arayüzünü uygulayan diğer sınıfların verilerini veritabanında tek sütunda tutmayı destekler; bunun için verileri JSON metnine çevirir ve hedef veritabanında JSON metninin saklanması için en uygun olan veri tipinde bir sütun oluşturarak verileri veritabanına kaydeder; ayrıca dilerseniz bu tipteki verilerin veritabanına hiç kaydedilmemesini de destekler.
   
-  10. **Dizi ve Koleksiyon Verilerinin Veritabanında Saklanması** : İkiz, uygulama içerisinde tanımlanan temel (`int`, `double`...) veyâ sarmalayıcı sınıfların (`Integer`, `Double`...) dizilerini, çok boyutlu dizilerini, `List` ve `Map` sınıfındaki verileri ve `Collection` arayüzünü uygulayan diğer sınıfların verilerini veritabanında tek sütunda tutmayı destekler; bunun için verileri JSON metnine çevirir ve hedef veritabanında JSON metninin saklanması için en uygun olan veri tipinde bir sütun oluşturarak verileri veritabanına kaydeder; ayrıca dilerseniz bu tipteki verilerin veritabanına hiç kaydedilmemesini de destekler.
+  10. **Bağımsız tasarım** : İkiz'in, veritabanı arayüz bağlantı sağlayıcısı (connector) dışında bir bağımlılığı yoktur; yardımcı olarak kullanılan `ReflectorRuntime` ve `jsoner` kitâplıkları da sıfırdan yazılarak uygulamaya dâhil edilmiştir.
   
-  11. **Bağımsız tasarım** : İkiz'in, veritabanı arayüz bağlantı sağlayıcısı (connector) dışında bir bağımlılığı yoktur; yardımcı olarak kullanılan `ReflectorRuntime` ve `jsoner` kitâplıklarını da ben yazdım ve uygulamaya dâhil ettim.
-  
-  12. **Geliştirilebilir tasarım** : 'Bundan iyisi Özgür Suriye'deki Şam'da kayısı' demiyoruz ve geliştirmeye devâm ediyoruz, vaktimin bir kısmını bu projeye ayırdığım için yeni sürüm yakın olmayabilir.
-
-- ..
+  11. **Geliştirilebilir tasarım** : 'Bundan iyisi Özgür Suriye'deki Şam'da kayısı' demiyoruz ve geliştirmeye devâm ediyoruz, vaktimin bir kısmını bu projeye ayırdığım için yeni sürüm yakın olmayabilir.
 
 #### Sistem Kısıtları - Eksiklikleri
 
@@ -64,6 +60,8 @@
 
 - Tabloya sadece bir sütun üzerinde çalışabilen `UNIQUE` kısıtı eklenir; iki sütun üzerine eklenen `UNIQUE` indeksleri bu sürümde çalışmamaktadır.
 
+- Bu sürümde gelişmiş sorgulama desteği yoktur.
+
 ## Derleme ve Çalıştırma
 
 - İkiz'i bir JAR ve yardımcı kitâplıklarıyla berâber derleyip, uygulamanıza koyabilirsiniz.
@@ -86,7 +84,7 @@
 
 - Linux kullanıyorsanız, şu komutu çalıştırın:
   
-  `&& mkdir -p ikiz && mkdir -p ikiz/libs && echo Manifest-Version: 1.0 > ikiz/MANIFEST.MF && echo Class-Path: libs/rwservice.jar libs/ReflectorRuntime.jar libs/jsoner.jar >> ikiz/MANIFEST.MF && cp libs/*.jar ikiz/libs && javac -encoding UTF-8 -cp libs/*:src/ikiz -parameters -d ikiz src/ikiz/*.java src/ikiz/Services/*.java && cd ikiz && jar mcf MANIFEST.MF ikiz.jar ikiz/*.class ikiz/Services/*.class`
+  `mkdir -p ikiz && mkdir -p ikiz/libs && echo Manifest-Version: 1.0 > ikiz/MANIFEST.MF && echo Class-Path: libs/rwservice.jar libs/ReflectorRuntime.jar libs/jsoner.jar >> ikiz/MANIFEST.MF && cp libs/*.jar ikiz/libs && javac -encoding UTF-8 -cp libs/*:src/ikiz -parameters -d ikiz src/ikiz/*.java src/ikiz/Services/*.java && cd ikiz && jar mcf MANIFEST.MF ikiz.jar ikiz/*.class ikiz/Services/*.class`
 
 - Ardından bulunduğunuz dizin altındaki '*ikiz*' dizini altındaki '*ikiz.jar*' dosyasını ve 'libs' dizinini kopyalayın ve `ikiz`'i proje dosya yolunuza ekleyin.
 
@@ -225,8 +223,6 @@
   // boolean takeDefaultFields, boolean takeProtectedFields);
   ```
 
-- ..
-
 ## Diğer Temel Veritabanı İşlemleri
 
 #### 1) Veri Çekme
@@ -275,7 +271,6 @@
   ```java
   List<String> listOfNames = ikiz.getColumnValues(
               Customer.class, "name", String.class);
-  // bu metot için sadece basit casting var;yarın düzeltilecek inşâAllâh
   ```
 
 - Bu şekilde yaptığınızda `null` veriler getirilmez.
@@ -327,22 +322,107 @@
   ikiz.deleteTable(Customer.class);// Tablo ikiz'den ve vt'den silinir
   ```
 
-- .
+#### 4) Veri Tazeleme (Güncelleme, 'UPDATE')
 
-#### 4) Veri Tazeleme
+- Veri tazelemek için mevcut nesneyi vermeniz kâfî:
+  
+  ```java
+  result = ikiz.updateRowInDB(csm);
+  System.out.println("Veri tazeleme sonucu: " + result);
+  ```
 
-- .
+- Veriniz büyük olabilir ve ağ trafiğini arttırmamak için verilerinizin yalnızca bâzı sütunlarını değiştirmek istiyor olabilirsiniz. Bu durumda, veri değişikliği yapmak istediğiniz alanların listesini verebilirsiniz:
+  
+  ```java
+  // Sadece belirli alanları tazeleme:
+  fieldsToUpd.add("info");
+  fieldsToUpd.add("ipAddress");
+  result = ikiz.updateRowInDB(csm, fieldsToUpd);
+  System.out.println("Veri tazeleme sonucu: " + result);
+  ```
 
-- .
+## İkiz Yapılandırması, Yapılandırma Yedekleme ve Yapılandırma Geri Yükleme
 
-- .
+- İkiz'in kendi yapılandırması ile tablo yapılandırması farklı şeylerdir. İkiz'in yapılandırması `ikiz.Confs` sınıfıyla ifâde edilir; tablo yapılandırması ise `ikiz.TableConfiguration` sınıfıyla temsil edilir.
 
-- .
+- İkiz yapılandırması az sayıda ayardan oluşmaktadır. Başlangıçta tasarlanan bâzı yapılandırmalar bu sürümde yer almamaktadır. İkiz yapılandırma ayarlarına erişmek ve bunları değiştirmek için `IkizIdare` nesnesi üzerinden `getConfs()` metodunu kullanabilirsiniz.
+
+- Kullanılabilecek olan yapılandırma ayarları şunlardır:
+  
+  - **attributesPolicy** : Bu yapılandırma İkiz'in sınıf alanlarını ele alırken hangi erişim belirteciyle tanımlanmış alanları alacağını belirtmek için kullanılır. Varsayılan olarak tüm sınıf alanları ele alınır.
+  
+  - **policyForListArrayMapFields** : İkiz'in dizi, liste, koleksiyon ve harita (`Map`) tipindeki alanları nasıl ele alacağını ifâde eden bu yapılandırma için `TAKE_AS_JSON` ve `DONT_TAKE` seçenekleri vardır.
+  
+  - **codingStyleForGetterSetter** : Bu yapılandırma, İkiz'in sınıflardaki alan verilerine erişirken doğrudan erişme yetkisinin olmadığı alanlara erişmek için arayacağı 'getter' ve 'setter' metodlarını hangi isimle arayacağını belirten bir kodlama biçimi ayarıdır.
+  
+  - **bufferMode** : İkiz'in verilerin önbelleklenmesini istiyorsanız bu ayar için `true` değeri vermelisiniz. İkiz'in birincil anahtarı olan tablolardaki verileri uygulamadaki karşılığı olan nesneleri münferid (tekil) olarak tutması için bu seçenek açık olmalıdır.
+
+- İkiz yapılandırmasını şu şekilde kaydedebilirsiniz. Birincisi `ikiz` yapılandırması + tablo yapılandırmalarını kaydeder, ikincisi sadece `ikiz` yapılandırmasını kaydeder:
+  
+  ```java
+  boolean res=ikiz.saveAllConfiguration("C:\\NBProjects\\Extraction");
+  res = ikiz.saveJustIkizConfiguration("C:\\NBProjects\\Extraction");
+  ```
+
+- Sadece İkiz yapılandırması kaydedildiyse dosyanız şu verilerin tek satırda yazılmış hâlidir; 'alwaysContinue' ayarı bu sürümde kullanılmıyor:
+  
+  ```json
+  {
+      "IkizConfigurations": {
+          "attributesPolicy": {
+              "private": true,
+              "default": true,
+              "public": true,
+              "protected": true
+          },
+          "policyForListArrayMapFields": "TAKE_AS_JSON",
+          "codingStyleForGetterSetter": "CAMEL_CASE",
+          "alwaysContinue": true,
+          "bufferMode": true
+      }
+  }
+  ```
+
+- Sistemi yeniden başlattığınızda, mevcut yapılandırmalarınızın geri yüklenmesi için iki seçenek kullanılmaktadır.
+  
+  1. VT şeması analizi ile: Sistemi, bağlantısını verdiğiniz veritabanı şemasının analizini yaptırarak geri yükleyebilirsiniz. Bu durumda tablo yapılandırmalarını geri kazanmış olursunuz; fakat İkiz yapılandırmalarını yüklememiş olursunuz; çünkü İkiz yapılandırması veritabanında saklanmaz. İkiz yapılandırması sadece birkaç ayar olduğu için varsayılan ayar dışındaki ayarlarınızı İkiz üzerinden seçtiğiniz bir fonksiyon yazıp, sistemi her başlattığınızda bu fonksiyonu çalıştırabilir veyâ sadece İkiz yapılandırmasını dosyadan yükleyebilirsiniz:
+     
+     ```java
+     boolean result = ikiz.loadSystemByAnalyzingDB();
+     //System.out.println("VT analiziyle sistem yüklemesi: " + result);
+     result = ikiz.
+        importIkizConfigurationsFromFile("C:\\NBProjects\\Extraction");
+     System.out.println("İkiz yapılandırması içe aktarımı: " + result);
+     
+     // Dosya adresi yerine doğrudan JSON metni vermek isterseniz
+     // şu metodu kullanın : importIkizConfigurations(jsonText)
+     ```
+  
+  2. Kaydettiğiniz yapılandırma ayarları ile : Kaydettiğiniz yapılandırma ayarları üzerinden İkiz sistemini yükleyebilirsiniz. Eğer bu yapılandırma verisi içerisinde yüklenemeyen bir tablo yapılandırması olursa hatâ alırsınız. Bu metot hem İkiz yapılandırmasını, hem de sistem yapılandırmasını içe aktarır:
+     
+     ```java
+     String path = "C:\\NBProjects\\Extraction";
+     boolean result = ikiz.loadSystemFromAllConfigurationsFile(path);
+     System.out.println("Dosyadan sistem yüklemesi : " + result);
+     
+     // Dosya adresi yerine doğrudan JSON metni vermek isterseniz
+     // şu metodu kullanın : loadSystemFromAllConfigurations(jsonText)
+     ```
 
 ## GÜVENLİK
 
-- Tablo oluşturulduktan sonra tablo yapılandırması değiştirilemektedir.
+- Tablo oluşturulduktan sonra tablo yapılandırması uygulama içerisinden değiştirilemektedir; fakat veritabanında ilgili yapılandırma değişikliğini yaptıktan sonra sistemi veritabanı analiziyle başlatarak veyâ yapılandırmayı dosyadan yüklüyorsanız ilgili yapılandırmayı dosya üzerinde yaparak yeni tablo yapılandırma ayarlarını sisteme geçirebilirsiniz.
 
 - SSL ile bağlanma için ayar belirtme desteği henüz yoktur.
 
-- .
+## DİĞER
+
+- Hedef şemanızdaki bİr tabloyu `ikiz`'den çıkartabilirsiniz:
+  
+  ```java
+  ikiz.discardTableFromIkiz(Customer.class);
+  ```
+
+- Eğer sistemdeki bir tabloyu İkiz'den çıkarırsanız, İkiz, artık bu tablo için yalnızca veri çekme işlemi yapabilecektir.
+
+- ..
