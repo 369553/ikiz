@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import jsoner.JSONArray;
 import jsoner.JSONObject;
 import rwservice.RWService;
@@ -328,7 +329,7 @@ public class IkizIdare{
     /**
      * Veritabanı tablosua bir satır verisi ekler
      * Gönderilen verinin sınıfı için daha önce tablo oluşturulmul olmalıdır
-     * Gönderilen verinin özellikleri, tablo oluşturulurken kullanılan
+     * Gönderilen verinin alan değerleri, tablo oluşturulurken kullanılan
      * {@code IkizIdare} yapılandırmasına göre alınır, yapılandırmada sonradan
      * yapılan değişiklikler bu fonksiyonun çalışmasını etkilemez, sadece
      * verinin alınması için gerekmesi durumunda 'getter' yönteminin hangi
@@ -1031,7 +1032,9 @@ public class IkizIdare{
             return false;
         if(path.isEmpty())
             return false;
-        String content = backupIkizConfs().getJSONText();// Sadece İkiz yapılandırma JSON metni
+        JSONObject ikizConfs = new JSONObject();
+        ikizConfs.addJSONObject("IkizConfigurations", backupIkizConfs());
+        String content = ikizConfs.getJSONText();// Sadece İkiz yapılandırma JSON metni
         return RWService.getService().produceAndWriteFile(content, "ikizConfs.json", path);
     }
     //ARKAPLAN İŞLEM YÖNTEMLERİ:
@@ -1128,10 +1131,9 @@ public class IkizIdare{
         if(targetFields == null)
             return null;
         Map<String, Object> result = new HashMap<String, Object>();
-        Iterator<Class<?>> iterOnValues = targetFields.values().iterator();
         for(String fieldName : targetFields.keySet()){
             Object fieldData = data.get(fieldName);
-            Class<?> fieldType = iterOnValues.next();
+            Class<?> fieldType = targetFields.get(fieldName);
             if(fieldData == null){
                 result.put(fieldName, fieldData);
                 continue;
@@ -1382,41 +1384,43 @@ public class IkizIdare{
         List<String> names = new ArrayList<String>();
         names.add(field);
         Object result = getValuesFromTable(target, names);
+        List<T> values = new ArrayList<T>();
+        List<Object> notCastedValues = new ArrayList<Object>();
         if(result != null){
-            List<Map<String, Object>> asListOfCast = ((List<Map<String, Object>>) result);
-            List<T> values = new ArrayList<T>();
-            List<Object> notCastedValues = new ArrayList<Object>();
-            for(Map row : asListOfCast){
-                Object fieldValue = row.values().iterator().next();
-                if(!cast){// Veri dönüştürülmeyecekse dönüştürmeye çalışma
-                    notCastedValues.add(fieldValue);
-                    continue;
-                }
-                if(fieldValue != null){
-                    try{
-                        T casted = classOfField.cast(fieldValue);
-                        // [$ hedef tipe verinin zerk edilmesini engelleyici durum
-                        // olabilir, misal, hedef tip dizi ve veri de JSON ise..
-                        values.add(casted);
+            List<Map<String, Object>> listOfRaw = ((List<Map<String, Object>>) result);
+            try{
+                for(Map<String, Object> row : listOfRaw){
+                    String fieldKey = row.keySet().iterator().next();
+                    Object fieldValue = row.get(fieldKey);
+                    if(!cast){
+                        notCastedValues.add(fieldValue);
                     }
-                    catch(ClassCastException exc){
-//                        System.err.println("exc. : : " + exc.toString());
-                        Map<String, Object> raw = new HashMap<String, Object>();
-                        raw.put(field, fieldValue);
-                        Map<String, Class<?>> targetAsMap = new HashMap<String, Class<?>>();
-                        targetAsMap.put(classOfField.getSimpleName(), classOfField);
-                        Map<String, Object> converted = convertJSONTextToMapOfVariables(raw, targetAsMap);
+                    else{
+                        Map<String, Class<?>> targets = new HashMap<String, Class<?>>();
+                        targets.put(fieldKey,classOfField);
+                        Map<String, Object> convertedAsMap = convertJSONTextToMapOfVariables(row, targets);
+                        Object converted = convertedAsMap.values().iterator().next();
                         if(converted != null){
-                            try{
-                                values.add((T) converted.values().iterator().next());
-                            }
-                            catch(ClassCastException | NullPointerException excOnSpecialField){
-                                System.err.println("(JSON olarak ele alınan) veri özel alana (harita (Map), liste, koleksiyon veyâ dizi) çevrilememiş:\t" + excOnSpecialField);
+                            // Üç kontrol:
+                            // Kendi sınıfıyla aynı sınıf mı
+                            // isSuitable mı? int Integer'a cast edilmez fakat suitable
+                            // cast edilebiliyor mu
+                            if(classOfField.equals(converted.getClass()))
+                                values.add((T) converted);
+                            else if(Reflector.getService().isPairingAutomatically(classOfField, converted.getClass()))
+                                values.add((T) converted);
+                            else{
+                                Object casted = Reflector.getService().getCastedObject(classOfField, converted);
+                                if(casted != null)
+                                    values.add((T) casted);
                             }
                         }
-                        //[$ Yukarıdaki kod eklendi, sistemde istenen sağlandı mı?
                     }
                 }
+            }
+            catch(NoSuchElementException exc){
+                System.err.println("exc : " + exc.toString());
+                return null;
             }
             if(cast)
                 return (List<Object>) values;
@@ -1843,7 +1847,7 @@ public class IkizIdare{
             Confs produced = jIkizConfs.getThisObjectAsTargetType(Confs.class, Reflector.CODING_STYLE.CAMEL_CASE);
             if(produced != null){
                 this.confs = produced;
-                if(loadJustIkizConfs && jTableConfs != null){
+                if(!loadJustIkizConfs && jTableConfs != null){
                     for(Map<String, Object> current : jTableConfs){
                         String key = current.keySet().iterator().next();
                         TableMetadata md = extractTableMetadataFromJSON(key, (Map<String, Object>) current.get(key));
@@ -1874,7 +1878,7 @@ public class IkizIdare{
             return md;
         }
         catch(ClassNotFoundException | NullPointerException exc){
-            System.err.println("Veri içe aktarılamadı!!");
+            System.err.println("Veri içe aktarılamadı!!" + exc.toString());
         }
         return md;
     }

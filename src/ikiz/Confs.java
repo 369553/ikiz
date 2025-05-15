@@ -157,6 +157,11 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
         attributesPolicy.put("default", takeDefaultFields);
         attributesPolicy.put("protected", takeProtectedFields);
     }
+    /**
+     * Ikiz'in dizi, koleksiyon ve harita biçimindeki alanları nasıl ele
+     * alacağını bildirmek için kullanılır.
+     * @param methodForListAndMapFields 
+     */
     public void setPolicyForListArrayMapFields(POLICY_FOR_LIST_MAP_ARRAY methodForListAndMapFields){
         this.policyForListArrayMapFields = methodForListAndMapFields;
     }
@@ -200,4 +205,7 @@ public class Confs{// Sistemin yapılandırmalarının belirtildiği yerdir
 //    public POLICY_FOR_USER_DEFINED_CLASSES getPolicyForUserDefinedClasses(){
 //        return policyForUserDefinedClasses;
 //    }
+    public CODING_STYLE getCodingStyleForGetterSetter() {
+        return codingStyleForGetterSetter;
+    }
 }
